@@ -1,9 +1,11 @@
 # Guns — config-driven custom guns for Paper
 
-Custom guns for Paper servers: define guns in `guns.yml` or create and edit them **in-game**,
-each with its own name, damage, fire rate, range, magazine, reload time, sound and resource
-pack model. Guns are held in the **crossbow aiming pose** (they're pre-charged crossbows under
-the hood — vanilla firing is fully cancelled and replaced with instant raytrace shots).
+Custom guns **and grenades** for Paper servers: define them in `guns.yml` or create and edit
+them **in-game**, each with its own name, damage, fire rate, range, magazine, reload time,
+sound and resource pack model — plus **backstab bonus damage**, **bleed/poison hit effects**
+and **ricocheting bullets**. Guns are held in the **crossbow aiming pose** (they're
+pre-charged crossbows under the hood — vanilla firing is fully cancelled and replaced with
+instant raytrace shots).
 
 ## Install
 
@@ -21,15 +23,17 @@ Spigot) 1.21.4+ and Java 21. No datapack needed.
 
 | Command | What it does | Permission |
 |---|---|---|
-| `/guns list` | list gun ids | guns.use |
-| `/guns give <id> [player]` | get a gun | guns.give |
-| `/guns create <id>` | create a new gun with default stats | guns.admin (op) |
+| `/guns list` | list gun + grenade ids | guns.use |
+| `/guns give <id> [player]` | get a gun or grenade | guns.give |
+| `/guns create <id> [gun\|grenade]` | create with default stats | guns.admin (op) |
 | `/guns edit <id> <stat> <value>` | edit a stat | guns.admin (op) |
 | `/guns reload` | reload guns.yml | guns.admin (op) |
 
-Editable stats: `name`, `model`, `damage`, `firerate`, `range`, `magazine`, `reloadticks`,
-`sound`, `soundpitch`. Stat edits apply **immediately to already-given guns** — only `name`
-and `model` are baked into the item, so re-run `/guns give` after changing those.
+Gun stats: `name`, `model`, `damage`, `firerate`, `range`, `magazine`, `reloadticks`,
+`sound`, `soundpitch`, `backstab`, `effect`, `effectticks`, `effectlevel`, `ricochet`.
+Grenade stats: `name`, `model`, `power`, `fuseticks`, `velocity`, `breakblocks`.
+Stat edits apply **immediately to already-given items** — only `name` and `model` are baked
+into the item, so re-run `/guns give` after changing those.
 
 Example:
 
@@ -39,7 +43,26 @@ Example:
 /guns edit shotgun firerate 0.8
 /guns edit shotgun name &6Shotgun
 /guns give shotgun
+
+/guns create sticky grenade
+/guns edit sticky power 4
+/guns edit sticky fuseticks 40
+/guns give sticky
 ```
+
+## Combat features
+
+- **Backstab** (`backstab`, multiplier): shots that hit a target from behind deal
+  `damage × backstab`, with a "Backstab!" actionbar + crit sound. `1.0` disables it.
+- **Hit effects** (`effect` + `effectticks` + `effectlevel`): `bleed` deals `effectlevel`
+  raw damage per second with blood particles for the duration; any potion effect name
+  (`poison`, `wither`, `slowness`, `glowing`, …) applies that effect at `effectlevel`.
+- **Ricochet** (`ricochet`, bounce count): bullets reflect off blocks with a metallic ping
+  and keep going until they run out of `range` (total across bounces). After the first
+  bounce your own bullet can hit YOU — mind the angles.
+- **Grenades**: vanilla throw arc (snowball); `fuseticks 0` explodes on impact, otherwise
+  the grenade lands, cooks visibly on the ground, then explodes (`power`; TNT is 4.0).
+  Explosions knock back and damage like real ones; `breakblocks` is off by default.
 
 ## Resource pack (models)
 

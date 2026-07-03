@@ -17,6 +17,9 @@ import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Vector;
 
@@ -28,12 +31,15 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Right-click with a gun = one shot (instant raytrace, no projectile). The gun item is a
  * charged crossbow purely for the AIMING POSE - all vanilla crossbow firing is cancelled.
- * F (swap-hands) reloads.
+ * F (swap-hands) reloads. Bullets can ricochet off blocks (gun stat), hits from behind get
+ * the backstab multiplier, and hits can apply bleed or any potion effect.
  */
 public final class ShootListener implements Listener {
 
     private static final Particle.DustOptions TRACER =
         new Particle.DustOptions(Color.fromRGB(255, 220, 120), 0.5f);
+    private static final Particle.DustOptions BLOOD =
+        new Particle.DustOptions(Color.fromRGB(160, 20, 20), 0.7f);
 
     private final GunsPlugin plugin;
     private final GunRegistry registry;
@@ -59,8 +65,7 @@ public final class ShootListener implements Listener {
     /** Belt and suspenders: no vanilla arrow may ever leave a gun. */
     @EventHandler
     public void onCrossbowFire(EntityShootBowEvent event) {
-        if (event.getEntity() instanceof Player player
-                && registry.gunOf(event.getBow()) != null) {
+        if (event.getEntity() instanceof Player && registry.gunOf(event.getBow()) != null) {
             event.setCancelled(true);
         }
     }
@@ -109,34 +114,103 @@ public final class ShootListener implements Listener {
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
+        player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
-        Location eye = player.getEyeLocation();
-        Vector dir = eye.getDirection();
-        player.getWorld().playSound(eye, gun.sound(), 1f, gun.soundPitch());
+        // Trace the bullet, bouncing off blocks up to gun.ricochet() times. After the first
+        // bounce the shooter is a valid target too (your own ricochet CAN hit you).
+        Location from = player.getEyeLocation();
+        Vector dir = from.getDirection();
+        double remaining = gun.range();
+        int bounces = gun.ricochet();
+        boolean firstSegment = true;
 
-        RayTraceResult hit = player.getWorld().rayTrace(
-            eye, dir, gun.range(), FluidCollisionMode.NEVER, true, 0.25,
-            e -> e != player && e instanceof LivingEntity);
+        while (remaining > 0.5) {
+            boolean excludeShooter = firstSegment;
+            RayTraceResult hit = player.getWorld().rayTrace(
+                from, dir, remaining, FluidCollisionMode.NEVER, true, 0.25,
+                e -> e instanceof LivingEntity && (!excludeShooter || e != player));
 
-        Location end = hit != null
-            ? hit.getHitPosition().toLocation(player.getWorld())
-            : eye.clone().add(dir.clone().multiply(gun.range()));
+            Location end = hit != null
+                ? hit.getHitPosition().toLocation(player.getWorld())
+                : from.clone().add(dir.clone().multiply(remaining));
+            drawTracer(from, end, firstSegment ? 1.5 : 0.0);
 
-        // Tracer line (skip the first 1.5 blocks so it doesn't fill the shooter's screen)
-        double length = eye.toVector().distance(end.toVector());
-        for (double d = 1.5; d < length; d += 1.0) {
-            Location p = eye.clone().add(dir.clone().multiply(d));
-            player.getWorld().spawnParticle(Particle.DUST, p, 1, 0, 0, 0, 0, TRACER);
-        }
-
-        if (hit != null && hit.getHitEntity() instanceof LivingEntity target) {
-            target.damage(gun.damage(), player);
-            player.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);
-        } else if (hit == null || hit.getHitBlock() != null) {
-            player.getWorld().spawnParticle(Particle.SMOKE, end, 4, 0.05, 0.05, 0.05, 0.01);
+            if (hit != null && hit.getHitEntity() instanceof LivingEntity target) {
+                applyHit(player, gun, target, dir, end);
+                break;
+            }
+            if (hit != null && hit.getHitBlock() != null && bounces > 0 && hit.getHitBlockFace() != null) {
+                Vector normal = hit.getHitBlockFace().getDirection();
+                dir = dir.clone().subtract(normal.clone().multiply(2 * dir.dot(normal))).normalize();
+                remaining -= from.distance(end);
+                from = end.clone().add(normal.clone().multiply(0.05));
+                bounces--;
+                firstSegment = false;
+                player.getWorld().playSound(end, "minecraft:block.chain.hit", 0.7f, 1.8f);
+                player.getWorld().spawnParticle(Particle.WAX_OFF, end, 4, 0.05, 0.05, 0.05, 0.2);
+                continue;
+            }
+            if (hit != null) {
+                player.getWorld().spawnParticle(Particle.SMOKE, end, 4, 0.05, 0.05, 0.05, 0.01);
+            }
+            break;
         }
 
         player.sendActionBar(ammoBar(gun, ammo - 1));
+    }
+
+    private void applyHit(Player shooter, Gun gun, LivingEntity target, Vector shotDir, Location end) {
+        // Backstab: the shot direction roughly matches the way the target is facing
+        boolean backstab = gun.backstab() > 1.0
+            && target.getLocation().getDirection().normalize().dot(shotDir.clone().normalize()) > 0.5;
+        double damage = backstab ? gun.damage() * gun.backstab() : gun.damage();
+        target.damage(damage, shooter);
+        target.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);
+        if (backstab) {
+            shooter.sendActionBar(Component.text("Backstab!", NamedTextColor.DARK_RED));
+            shooter.getWorld().playSound(end, "minecraft:entity.player.attack.crit", 1f, 0.8f);
+        }
+        applyEffect(shooter, gun, target);
+    }
+
+    private void applyEffect(Player shooter, Gun gun, LivingEntity target) {
+        String effect = gun.effect() == null ? "none" : gun.effect().toLowerCase();
+        if (effect.equals("none") || effect.isEmpty()) return;
+
+        if (effect.equals("bleed")) {
+            // Custom bleed: effectLevel raw damage once per second while the timer runs
+            int pulses = Math.max(1, gun.effectTicks() / 20);
+            new BukkitRunnable() {
+                int left = pulses;
+                @Override public void run() {
+                    if (left-- <= 0 || !target.isValid() || target.isDead()) { cancel(); return; }
+                    target.damage(Math.max(1, gun.effectLevel()), shooter);
+                    target.getWorld().spawnParticle(Particle.DUST,
+                        target.getLocation().add(0, target.getHeight() / 2, 0), 6, 0.2, 0.3, 0.2, 0, BLOOD);
+                }
+            }.runTaskTimer(plugin, 20L, 20L);
+            return;
+        }
+
+        @SuppressWarnings("deprecation")
+        PotionEffectType type = PotionEffectType.getByName(effect);
+        if (type == null) {
+            plugin.getLogger().warning("Gun '" + gun.id() + "' has unknown effect '" + gun.effect()
+                + "' - use 'bleed' or a potion effect name (poison, wither, slowness, glowing...).");
+            return;
+        }
+        target.addPotionEffect(new PotionEffect(type, gun.effectTicks(), Math.max(0, gun.effectLevel() - 1)));
+    }
+
+    private void drawTracer(Location from, Location to, double skip) {
+        Vector dir = to.toVector().subtract(from.toVector());
+        double length = dir.length();
+        if (length < 0.01) return;
+        dir.normalize();
+        for (double d = skip; d < length; d += 1.0) {
+            Location p = from.clone().add(dir.clone().multiply(d));
+            from.getWorld().spawnParticle(Particle.DUST, p, 1, 0, 0, 0, 0, TRACER);
+        }
     }
 
     private Component ammoBar(Gun gun, int ammo) {

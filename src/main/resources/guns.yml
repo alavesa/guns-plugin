@@ -1,15 +1,27 @@
-# Gun definitions. Edit here (then /guns reload) or in-game with /guns edit.
+# Gun & grenade definitions. Edit here (then /guns reload) or in-game with /guns edit.
 #
-# Stats:
+# Gun stats:
 #   name         display name (& color codes work, e.g. "&6Desert Fox")
 #   model        custom_model_data STRING id for your resource pack (on a crossbow item)
 #   damage       half-hearts per hit (4.0 = 2 hearts)
 #   fire-rate    max shots per second
-#   range        how far a shot reaches, in blocks
+#   range        how far a shot reaches, in blocks (total, including ricochets)
 #   magazine     shots per magazine (reload with F / swap-hands key)
 #   reload-ticks how long a reload takes (20 ticks = 1 second)
-#   sound        shot sound (namespaced key - your resource pack's custom sounds work too)
+#   sound        shot sound (namespaced key - resource pack custom sounds work too)
 #   sound-pitch  pitch of the shot sound
+#   backstab     damage multiplier when shooting a target from behind (1.0 = off)
+#   effect       "none", "bleed", or a potion effect name (poison, wither, slowness, glowing...)
+#   effect-ticks how long the effect lasts (20 = 1s)
+#   effect-level bleed: damage per second | potions: effect strength (1 = level I)
+#   ricochet     how many times a bullet bounces off blocks (0 = none)
+#
+# Grenade stats:
+#   name / model as above (model on a snowball item)
+#   power        explosion strength (TNT is 4.0)
+#   fuse-ticks   0 = explode on impact, otherwise land + cook this long
+#   velocity     throw speed multiplier
+#   break-blocks whether the explosion damages the world (default false)
 
 guns:
   pistol:
@@ -22,6 +34,11 @@ guns:
     reload-ticks: 25
     sound: "minecraft:block.stone_button.click_on"
     sound-pitch: 0.6
+    backstab: 1.5
+    effect: none
+    effect-ticks: 60
+    effect-level: 1
+    ricochet: 0
   rifle:
     name: "&8Rifle"
     model: gun_rifle
@@ -32,3 +49,32 @@ guns:
     reload-ticks: 45
     sound: "minecraft:entity.firework_rocket.blast"
     sound-pitch: 1.4
+    backstab: 2.0
+    effect: none
+    effect-ticks: 60
+    effect-level: 1
+    ricochet: 2
+  venom:
+    name: "&2Venom SMG"
+    model: gun_venom
+    damage: 2.0
+    fire-rate: 5.0
+    range: 30
+    magazine: 20
+    reload-ticks: 35
+    sound: "minecraft:block.bamboo.hit"
+    sound-pitch: 1.8
+    backstab: 1.5
+    effect: poison
+    effect-ticks: 80
+    effect-level: 1
+    ricochet: 0
+
+grenades:
+  frag:
+    name: "&cFrag Grenade"
+    model: grenade_frag
+    power: 2.5
+    fuse-ticks: 25
+    velocity: 1.5
+    break-blocks: false

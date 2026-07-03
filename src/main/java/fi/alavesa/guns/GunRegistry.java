@@ -10,6 +10,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.CrossbowMeta;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.components.CustomModelDataComponent;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.Plugin;
@@ -21,118 +22,196 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Loads, saves and edits guns.yml, and builds the actual gun items. */
+/** Loads, saves and edits guns.yml (guns AND grenades), and builds the actual items. */
 public final class GunRegistry {
 
-    /** Stats editable via /guns edit, with their guns.yml paths. */
-    public static final Set<String> EDITABLE =
-        Set.of("name", "model", "damage", "firerate", "range", "magazine", "reloadticks", "sound", "soundpitch");
+    public static final Set<String> GUN_EDITABLE = Set.of(
+        "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
+        "sound", "soundpitch", "backstab", "effect", "effectticks", "effectlevel", "ricochet");
+
+    public static final Set<String> GRENADE_EDITABLE = Set.of(
+        "name", "model", "power", "fuseticks", "velocity", "breakblocks");
 
     private final Plugin plugin;
     private final NamespacedKey idKey;
+    private final NamespacedKey grenadeKey;
     private final NamespacedKey ammoKey;
     private final Map<String, Gun> guns = new LinkedHashMap<>();
+    private final Map<String, Grenade> grenades = new LinkedHashMap<>();
     private File file;
     private YamlConfiguration yaml;
 
     public GunRegistry(Plugin plugin) {
         this.plugin = plugin;
         this.idKey = new NamespacedKey(plugin, "id");
+        this.grenadeKey = new NamespacedKey(plugin, "grenade");
         this.ammoKey = new NamespacedKey(plugin, "ammo");
     }
+
+    public NamespacedKey grenadeKey() { return grenadeKey; }
 
     public void load() {
         file = new File(plugin.getDataFolder(), "guns.yml");
         if (!file.exists()) plugin.saveResource("guns.yml", false);
         yaml = YamlConfiguration.loadConfiguration(file);
         guns.clear();
+        grenades.clear();
         ConfigurationSection root = yaml.getConfigurationSection("guns");
-        if (root == null) return;
-        for (String id : root.getKeys(false)) {
-            ConfigurationSection s = root.getConfigurationSection(id);
-            if (s == null) continue;
-            guns.put(id.toLowerCase(), new Gun(
-                id.toLowerCase(),
-                s.getString("name", id),
-                s.getString("model", "gun_" + id),
-                s.getDouble("damage", 4.0),
-                s.getDouble("fire-rate", 2.0),
-                s.getDouble("range", 50),
-                s.getInt("magazine", 10),
-                s.getInt("reload-ticks", 30),
-                s.getString("sound", "minecraft:entity.firework_rocket.blast"),
-                (float) s.getDouble("sound-pitch", 1.5)
-            ));
+        if (root != null) {
+            for (String id : root.getKeys(false)) {
+                ConfigurationSection s = root.getConfigurationSection(id);
+                if (s == null) continue;
+                guns.put(id.toLowerCase(), new Gun(
+                    id.toLowerCase(),
+                    s.getString("name", id),
+                    s.getString("model", "gun_" + id),
+                    s.getDouble("damage", 4.0),
+                    s.getDouble("fire-rate", 2.0),
+                    s.getDouble("range", 50),
+                    s.getInt("magazine", 10),
+                    s.getInt("reload-ticks", 30),
+                    s.getString("sound", "minecraft:entity.firework_rocket.blast"),
+                    (float) s.getDouble("sound-pitch", 1.5),
+                    s.getDouble("backstab", 1.0),
+                    s.getString("effect", "none"),
+                    s.getInt("effect-ticks", 60),
+                    s.getInt("effect-level", 1),
+                    s.getInt("ricochet", 0)
+                ));
+            }
+        }
+        ConfigurationSection groot = yaml.getConfigurationSection("grenades");
+        if (groot != null) {
+            for (String id : groot.getKeys(false)) {
+                ConfigurationSection s = groot.getConfigurationSection(id);
+                if (s == null) continue;
+                grenades.put(id.toLowerCase(), new Grenade(
+                    id.toLowerCase(),
+                    s.getString("name", id),
+                    s.getString("model", "grenade_" + id),
+                    s.getDouble("power", 2.5),
+                    s.getInt("fuse-ticks", 25),
+                    s.getDouble("velocity", 1.5),
+                    s.getBoolean("break-blocks", false)
+                ));
+            }
         }
     }
 
     public Gun get(String id) { return id == null ? null : guns.get(id.toLowerCase()); }
+    public Grenade getGrenade(String id) { return id == null ? null : grenades.get(id.toLowerCase()); }
     public Set<String> ids() { return guns.keySet(); }
+    public Set<String> grenadeIds() { return grenades.keySet(); }
 
-    /** Create a new gun with defaults and persist it. Returns null if the id already exists. */
-    public Gun create(String id) throws IOException {
+    /** Create a gun or grenade with defaults. Returns false if the id exists in either list. */
+    public boolean create(String id, boolean grenade) throws IOException {
         String key = id.toLowerCase();
-        if (guns.containsKey(key)) return null;
-        yaml.set("guns." + key + ".name", "&f" + id);
-        yaml.set("guns." + key + ".model", "gun_" + key);
-        yaml.set("guns." + key + ".damage", 4.0);
-        yaml.set("guns." + key + ".fire-rate", 2.0);
-        yaml.set("guns." + key + ".range", 50);
-        yaml.set("guns." + key + ".magazine", 10);
-        yaml.set("guns." + key + ".reload-ticks", 30);
-        yaml.set("guns." + key + ".sound", "minecraft:entity.firework_rocket.blast");
-        yaml.set("guns." + key + ".sound-pitch", 1.5);
+        if (guns.containsKey(key) || grenades.containsKey(key)) return false;
+        if (grenade) {
+            yaml.set("grenades." + key + ".name", "&f" + id);
+            yaml.set("grenades." + key + ".model", "grenade_" + key);
+            yaml.set("grenades." + key + ".power", 2.5);
+            yaml.set("grenades." + key + ".fuse-ticks", 25);
+            yaml.set("grenades." + key + ".velocity", 1.5);
+            yaml.set("grenades." + key + ".break-blocks", false);
+        } else {
+            yaml.set("guns." + key + ".name", "&f" + id);
+            yaml.set("guns." + key + ".model", "gun_" + key);
+            yaml.set("guns." + key + ".damage", 4.0);
+            yaml.set("guns." + key + ".fire-rate", 2.0);
+            yaml.set("guns." + key + ".range", 50);
+            yaml.set("guns." + key + ".magazine", 10);
+            yaml.set("guns." + key + ".reload-ticks", 30);
+            yaml.set("guns." + key + ".sound", "minecraft:entity.firework_rocket.blast");
+            yaml.set("guns." + key + ".sound-pitch", 1.5);
+            yaml.set("guns." + key + ".backstab", 1.0);
+            yaml.set("guns." + key + ".effect", "none");
+            yaml.set("guns." + key + ".effect-ticks", 60);
+            yaml.set("guns." + key + ".effect-level", 1);
+            yaml.set("guns." + key + ".ricochet", 0);
+        }
         yaml.save(file);
         load();
-        return get(key);
+        return true;
     }
 
-    /** Edit one stat and persist. Returns an error message, or null on success. */
+    /** Edit one stat of a gun or grenade. Returns an error message, or null on success. */
     public String edit(String id, String stat, String value) throws IOException {
-        Gun gun = get(id);
-        if (gun == null) return "Unknown gun: " + id;
-        String path = "guns." + gun.id() + ".";
-        switch (stat.toLowerCase()) {
-            case "name" -> yaml.set(path + "name", value);
-            case "model" -> yaml.set(path + "model", value);
-            case "sound" -> yaml.set(path + "sound", value);
-            case "damage", "firerate", "range", "soundpitch" -> {
-                double d;
-                try { d = Double.parseDouble(value); } catch (NumberFormatException e) { return "Not a number: " + value; }
-                yaml.set(path + switch (stat.toLowerCase()) {
-                    case "damage" -> "damage";
-                    case "firerate" -> "fire-rate";
-                    case "range" -> "range";
-                    default -> "sound-pitch";
-                }, d);
+        String key = id.toLowerCase();
+        String statKey = stat.toLowerCase();
+        if (guns.containsKey(key)) {
+            if (!GUN_EDITABLE.contains(statKey)) {
+                return "Unknown gun stat '" + stat + "'. Stats: " + String.join(", ", GUN_EDITABLE);
             }
-            case "magazine", "reloadticks" -> {
-                int n;
-                try { n = Integer.parseInt(value); } catch (NumberFormatException e) { return "Not a whole number: " + value; }
-                yaml.set(path + (stat.equalsIgnoreCase("magazine") ? "magazine" : "reload-ticks"), n);
+            String path = "guns." + key + ".";
+            switch (statKey) {
+                case "name", "model", "sound", "effect" -> yaml.set(path + yamlKey(statKey), value);
+                case "magazine", "reloadticks", "effectticks", "effectlevel", "ricochet" -> {
+                    Integer n = parseInt(value);
+                    if (n == null) return "Not a whole number: " + value;
+                    yaml.set(path + yamlKey(statKey), n);
+                }
+                default -> {
+                    Double d = parseDouble(value);
+                    if (d == null) return "Not a number: " + value;
+                    yaml.set(path + yamlKey(statKey), d);
+                }
             }
-            default -> { return "Unknown stat '" + stat + "'. Stats: " + String.join(", ", EDITABLE); }
+        } else if (grenades.containsKey(key)) {
+            if (!GRENADE_EDITABLE.contains(statKey)) {
+                return "Unknown grenade stat '" + stat + "'. Stats: " + String.join(", ", GRENADE_EDITABLE);
+            }
+            String path = "grenades." + key + ".";
+            switch (statKey) {
+                case "name", "model" -> yaml.set(path + yamlKey(statKey), value);
+                case "fuseticks" -> {
+                    Integer n = parseInt(value);
+                    if (n == null) return "Not a whole number: " + value;
+                    yaml.set(path + "fuse-ticks", n);
+                }
+                case "breakblocks" -> yaml.set(path + "break-blocks", Boolean.parseBoolean(value));
+                default -> {
+                    Double d = parseDouble(value);
+                    if (d == null) return "Not a number: " + value;
+                    yaml.set(path + yamlKey(statKey), d);
+                }
+            }
+        } else {
+            return "Unknown gun/grenade: " + id;
         }
         yaml.save(file);
         load();
         return null;
     }
 
-    /**
-     * Build the gun item: a crossbow pre-loaded with an arrow, which makes the player hold
-     * it in the crossbow AIMING POSE. Vanilla firing is cancelled by ShootListener; the
-     * charged arrow is purely for the pose.
-     */
+    private String yamlKey(String stat) {
+        return switch (stat) {
+            case "firerate" -> "fire-rate";
+            case "reloadticks" -> "reload-ticks";
+            case "soundpitch" -> "sound-pitch";
+            case "effectticks" -> "effect-ticks";
+            case "effectlevel" -> "effect-level";
+            case "fuseticks" -> "fuse-ticks";
+            case "breakblocks" -> "break-blocks";
+            default -> stat;
+        };
+    }
+
+    private Integer parseInt(String v) {
+        try { return Integer.parseInt(v); } catch (NumberFormatException e) { return null; }
+    }
+
+    private Double parseDouble(String v) {
+        try { return Double.parseDouble(v); } catch (NumberFormatException e) { return null; }
+    }
+
+    /** Gun item: a crossbow pre-loaded with an arrow -> held in the crossbow AIMING POSE.
+     *  Vanilla firing is cancelled by ShootListener; the charged arrow is only for the pose. */
     public ItemStack buildItem(Gun gun) {
         ItemStack item = new ItemStack(Material.CROSSBOW);
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
         meta.addChargedProjectile(new ItemStack(Material.ARROW));
-        Component name = LegacyComponentSerializer.legacyAmpersand().deserialize(gun.name())
-            .decoration(TextDecoration.ITALIC, false);
-        meta.itemName(name);
-        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
-        cmd.setStrings(List.of(gun.model()));
-        meta.setCustomModelDataComponent(cmd);
+        applyCosmetics(meta, gun.name(), gun.model());
         meta.setUnbreakable(true);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, gun.id());
@@ -141,11 +220,37 @@ public final class GunRegistry {
         return item;
     }
 
-    /** The gun this item is, or null if it isn't one. */
+    /** Grenade item: a snowball (throwable by vanilla; the throw is tagged by GrenadeListener). */
+    public ItemStack buildGrenadeItem(Grenade grenade) {
+        ItemStack item = new ItemStack(Material.SNOWBALL, 4);
+        ItemMeta meta = item.getItemMeta();
+        applyCosmetics(meta, grenade.name(), grenade.model());
+        meta.getPersistentDataContainer().set(grenadeKey, PersistentDataType.STRING, grenade.id());
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    private void applyCosmetics(ItemMeta meta, String name, String model) {
+        Component display = LegacyComponentSerializer.legacyAmpersand().deserialize(name)
+            .decoration(TextDecoration.ITALIC, false);
+        meta.itemName(display);
+        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(List.of(model));
+        meta.setCustomModelDataComponent(cmd);
+    }
+
+    /** The gun this item is, or null. */
     public Gun gunOf(ItemStack item) {
         if (item == null || item.getType() != Material.CROSSBOW || !item.hasItemMeta()) return null;
         String id = item.getItemMeta().getPersistentDataContainer().get(idKey, PersistentDataType.STRING);
         return get(id);
+    }
+
+    /** The grenade this item is, or null. */
+    public Grenade grenadeOf(ItemStack item) {
+        if (item == null || item.getType() != Material.SNOWBALL || !item.hasItemMeta()) return null;
+        String id = item.getItemMeta().getPersistentDataContainer().get(grenadeKey, PersistentDataType.STRING);
+        return getGrenade(id);
     }
 
     public int ammoOf(ItemStack item) {
