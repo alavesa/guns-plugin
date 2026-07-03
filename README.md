@@ -64,13 +64,24 @@ Example:
   the grenade lands, cooks visibly on the ground, then explodes (`power`; TNT is 4.0).
   Explosions knock back and damage like real ones; `breakblocks` is off by default.
 
-## Resource pack (models)
+## Resource pack (models) — ready-made in [`resource-pack/`](resource-pack/)
 
-Each gun's `model` stat is a `custom_model_data` **string** id on a `minecraft:crossbow` item
-(1.21.4+ model system) — e.g. `gun_pistol`, `gun_rifle`. Point your resource pack's item-model
-definition for the crossbow at those ids. Because the gun is a *charged* crossbow, your model
-replaces the charged-crossbow appearance; without a resource pack the gun shows as a loaded
-crossbow (the aiming pose works regardless).
+The repo ships a working resource pack with **placeholder 3D models for every example gun and
+grenade** (`gun_pistol`, `gun_rifle`, `gun_venom`, `grenade_frag`) — grab
+`GunsResourcePack.zip` from the release, drop it in your `resourcepacks` folder (or serve it
+via `server.properties` → `resource-pack=<url>`), and the guns show as 3D guns out of the box.
+Replace the placeholders with your own Blockbench models when ready.
+
+How it's wired: each gun's `model` stat is a `custom_model_data` **string** id on a
+`minecraft:crossbow` item (grenades: `minecraft:snowball`), selected in
+`assets/minecraft/items/crossbow.json` / `snowball.json` (1.21.4+ item model system), pointing
+at models under `assets/guns/models/item/`. Without any pack the guns still work and show as
+loaded crossbows (the aiming pose is a player animation, independent of the model).
+
+**Full step-by-step instructions — in Finnish — in
+[`resource-pack/OHJEET.md`](resource-pack/OHJEET.md)**: plugin install, pack install (personal
+and server-wide), making models in Blockbench, adding them to the pack, and a
+troubleshooting checklist.
 
 Gun sounds accept any namespaced key, so `sound` can point at your resource pack's custom
 sounds (e.g. `guns:shot.pistol` from your pack's `sounds.json`).

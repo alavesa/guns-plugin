@@ -1,0 +1,10 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "cases": [
+      { "when": "grenade_frag", "model": { "type": "minecraft:model", "model": "guns:item/grenade_frag" } }
+    ],
+    "fallback": { "type": "minecraft:model", "model": "minecraft:item/snowball" }
+  }
+}

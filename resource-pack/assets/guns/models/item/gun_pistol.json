@@ -1,0 +1,50 @@
+{
+  "credit": "Placeholder pistol - replace with your own Blockbench model",
+  "textures": {
+    "0": "minecraft:block/iron_block",
+    "1": "minecraft:block/polished_blackstone",
+    "particle": "minecraft:block/iron_block"
+  },
+  "elements": [
+    {
+      "name": "barrel",
+      "from": [7, 9, 3],
+      "to": [9, 11, 12],
+      "faces": {
+        "north": { "texture": "#0" }, "south": { "texture": "#0" },
+        "east": { "texture": "#0" }, "west": { "texture": "#0" },
+        "up": { "texture": "#0" }, "down": { "texture": "#0" }
+      }
+    },
+    {
+      "name": "body",
+      "from": [6.5, 7, 9],
+      "to": [9.5, 10.5, 14],
+      "faces": {
+        "north": { "texture": "#1" }, "south": { "texture": "#1" },
+        "east": { "texture": "#1" }, "west": { "texture": "#1" },
+        "up": { "texture": "#1" }, "down": { "texture": "#1" }
+      }
+    },
+    {
+      "name": "grip",
+      "from": [7, 2.5, 11],
+      "to": [9, 8, 14],
+      "rotation": { "origin": [8, 8, 12.5], "axis": "x", "angle": -22.5 },
+      "faces": {
+        "north": { "texture": "#1" }, "south": { "texture": "#1" },
+        "east": { "texture": "#1" }, "west": { "texture": "#1" },
+        "up": { "texture": "#1" }, "down": { "texture": "#1" }
+      }
+    }
+  ],
+  "display": {
+    "thirdperson_righthand": { "rotation": [0, 90, 0], "translation": [0, 2, 1], "scale": [0.8, 0.8, 0.8] },
+    "thirdperson_lefthand": { "rotation": [0, -90, 0], "translation": [0, 2, 1], "scale": [0.8, 0.8, 0.8] },
+    "firstperson_righthand": { "rotation": [0, 95, 0], "translation": [1, 1.5, 0], "scale": [0.7, 0.7, 0.7] },
+    "firstperson_lefthand": { "rotation": [0, -95, 0], "translation": [1, 1.5, 0], "scale": [0.7, 0.7, 0.7] },
+    "gui": { "rotation": [25, -135, 0], "translation": [0, -1, 0], "scale": [0.85, 0.85, 0.85] },
+    "ground": { "translation": [0, 2, 0], "scale": [0.6, 0.6, 0.6] },
+    "fixed": { "rotation": [0, 90, 0], "scale": [0.9, 0.9, 0.9] }
+  }
+}

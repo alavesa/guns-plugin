@@ -1,0 +1,50 @@
+{
+  "credit": "Placeholder frag grenade - replace with your own Blockbench model",
+  "textures": {
+    "0": "minecraft:block/green_concrete",
+    "1": "minecraft:block/iron_block",
+    "particle": "minecraft:block/green_concrete"
+  },
+  "elements": [
+    {
+      "name": "body",
+      "from": [6, 5, 6],
+      "to": [10, 10, 10],
+      "faces": {
+        "north": { "texture": "#0" }, "south": { "texture": "#0" },
+        "east": { "texture": "#0" }, "west": { "texture": "#0" },
+        "up": { "texture": "#0" }, "down": { "texture": "#0" }
+      }
+    },
+    {
+      "name": "neck",
+      "from": [7, 10, 7],
+      "to": [9, 11.5, 9],
+      "faces": {
+        "north": { "texture": "#1" }, "south": { "texture": "#1" },
+        "east": { "texture": "#1" }, "west": { "texture": "#1" },
+        "up": { "texture": "#1" }, "down": { "texture": "#1" }
+      }
+    },
+    {
+      "name": "lever",
+      "from": [7.5, 10.5, 9],
+      "to": [8.5, 11.5, 12],
+      "rotation": { "origin": [8, 11, 9], "axis": "x", "angle": -22.5 },
+      "faces": {
+        "north": { "texture": "#1" }, "south": { "texture": "#1" },
+        "east": { "texture": "#1" }, "west": { "texture": "#1" },
+        "up": { "texture": "#1" }, "down": { "texture": "#1" }
+      }
+    }
+  ],
+  "display": {
+    "thirdperson_righthand": { "translation": [0, 1, 0], "scale": [0.7, 0.7, 0.7] },
+    "thirdperson_lefthand": { "translation": [0, 1, 0], "scale": [0.7, 0.7, 0.7] },
+    "firstperson_righthand": { "rotation": [0, 45, 0], "translation": [0, 2, 0], "scale": [0.7, 0.7, 0.7] },
+    "firstperson_lefthand": { "rotation": [0, -45, 0], "translation": [0, 2, 0], "scale": [0.7, 0.7, 0.7] },
+    "gui": { "rotation": [25, -135, 0], "scale": [1.0, 1.0, 1.0] },
+    "ground": { "translation": [0, 2, 0], "scale": [0.6, 0.6, 0.6] },
+    "fixed": { "scale": [0.9, 0.9, 0.9] }
+  }
+}
