@@ -1,0 +1,34 @@
+# Gun definitions. Edit here (then /guns reload) or in-game with /guns edit.
+#
+# Stats:
+#   name         display name (& color codes work, e.g. "&6Desert Fox")
+#   model        custom_model_data STRING id for your resource pack (on a crossbow item)
+#   damage       half-hearts per hit (4.0 = 2 hearts)
+#   fire-rate    max shots per second
+#   range        how far a shot reaches, in blocks
+#   magazine     shots per magazine (reload with F / swap-hands key)
+#   reload-ticks how long a reload takes (20 ticks = 1 second)
+#   sound        shot sound (namespaced key - your resource pack's custom sounds work too)
+#   sound-pitch  pitch of the shot sound
+
+guns:
+  pistol:
+    name: "&7Pistol"
+    model: gun_pistol
+    damage: 4.0
+    fire-rate: 3.0
+    range: 40
+    magazine: 12
+    reload-ticks: 25
+    sound: "minecraft:block.stone_button.click_on"
+    sound-pitch: 0.6
+  rifle:
+    name: "&8Rifle"
+    model: gun_rifle
+    damage: 7.0
+    fire-rate: 1.2
+    range: 90
+    magazine: 5
+    reload-ticks: 45
+    sound: "minecraft:entity.firework_rocket.blast"
+    sound-pitch: 1.4
