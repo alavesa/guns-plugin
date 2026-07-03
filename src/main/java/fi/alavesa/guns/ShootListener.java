@@ -43,12 +43,14 @@ public final class ShootListener implements Listener {
 
     private final GunsPlugin plugin;
     private final GunRegistry registry;
+    private final AmmoBar ammoBar;
     private final Map<UUID, Long> nextShotAt = new ConcurrentHashMap<>();
     private final Set<UUID> reloading = ConcurrentHashMap.newKeySet();
 
-    public ShootListener(GunsPlugin plugin, GunRegistry registry) {
+    public ShootListener(GunsPlugin plugin, GunRegistry registry, AmmoBar ammoBar) {
         this.plugin = plugin;
         this.registry = registry;
+        this.ammoBar = ammoBar;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -94,7 +96,7 @@ public final class ShootListener implements Listener {
             registry.setAmmo(now, held.magazine());
             player.getInventory().setItemInMainHand(now);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
-            player.sendActionBar(ammoBar(held, held.magazine()));
+            ammoBar.update(player, held, held.magazine());
         }, gun.reloadTicks());
     }
 
@@ -170,7 +172,7 @@ public final class ShootListener implements Listener {
             break;
         }
 
-        player.sendActionBar(ammoBar(gun, ammo - 1));
+        ammoBar.update(player, gun, ammo - 1);
 
         // Lag canary: if one shot stalls the main thread noticeably, say so in the console
         // with the entity count - that tells us WHY the server is slow, without guessing.
@@ -242,8 +244,4 @@ public final class ShootListener implements Listener {
         return spawned;
     }
 
-    private Component ammoBar(Gun gun, int ammo) {
-        return Component.text("Ammo " + ammo + "/" + gun.magazine(),
-            ammo == 0 ? NamedTextColor.RED : NamedTextColor.GOLD);
-    }
 }

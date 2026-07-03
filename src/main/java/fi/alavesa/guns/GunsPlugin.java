@@ -21,8 +21,23 @@ public final class GunsPlugin extends JavaPlugin {
         saveDefaultConfig();
         registry = new GunRegistry(this);
         registry.load();
-        getServer().getPluginManager().registerEvents(new ShootListener(this, registry), this);
+        AmmoBar ammoBar = new AmmoBar();
+        getServer().getPluginManager().registerEvents(new ShootListener(this, registry, ammoBar), this);
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
+
+        // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks
+        // keeps it correct across item switches/pickups; shots and reloads update it instantly.
+        getServer().getScheduler().runTaskTimer(this, () -> {
+            for (var player : getServer().getOnlinePlayers()) {
+                Gun gun = registry.gunOf(player.getInventory().getItemInMainHand());
+                if (gun != null) {
+                    ammoBar.update(player, gun, registry.ammoOf(player.getInventory().getItemInMainHand()));
+                } else {
+                    ammoBar.hide(player);
+                }
+            }
+        }, 20L, 5L);
+
         getLogger().info("Guns enabled - guns: " + registry.ids() + ", grenades: " + registry.grenadeIds());
     }
 

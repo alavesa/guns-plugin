@@ -14,8 +14,10 @@ Spigot) 1.21.4+ and Java 21. No datapack needed.
 
 ## Use
 
-- **Shoot**: right-click. Instant hit up to `range` blocks, tracer particles, ammo counter in
-  the actionbar.
+- **Shoot**: right-click. Instant hit up to `range` blocks, tracer particles.
+- **Ammo bar**: while a gun is held, a boss bar at the top of the screen shows the gun's name
+  and bullets left (e.g. `Pistol  7 / 12`) as a notched bar that drains and shifts
+  green → yellow → red. It disappears when you put the gun away.
 - **Reload**: press **F** (swap-hands). Takes `reload-ticks`.
 - Out of ammo → click sound + "press F to reload".
 
