@@ -61,22 +61,24 @@ public final class GunRegistry {
             for (String id : root.getKeys(false)) {
                 ConfigurationSection s = root.getConfigurationSection(id);
                 if (s == null) continue;
+                // Stats are clamped to sane ranges: a runaway value (range 99999...) makes
+                // every shot scan a huge area and can stall the whole server.
                 guns.put(id.toLowerCase(), new Gun(
                     id.toLowerCase(),
                     s.getString("name", id),
                     s.getString("model", "gun_" + id),
-                    s.getDouble("damage", 4.0),
-                    s.getDouble("fire-rate", 2.0),
-                    s.getDouble("range", 50),
-                    s.getInt("magazine", 10),
-                    s.getInt("reload-ticks", 30),
+                    clamp(id, "damage", s.getDouble("damage", 4.0), 0, 100),
+                    clamp(id, "fire-rate", s.getDouble("fire-rate", 2.0), 0.1, 20),
+                    clamp(id, "range", s.getDouble("range", 50), 1, 128),
+                    (int) clamp(id, "magazine", s.getInt("magazine", 10), 1, 1000),
+                    (int) clamp(id, "reload-ticks", s.getInt("reload-ticks", 30), 0, 200),
                     s.getString("sound", "minecraft:entity.firework_rocket.blast"),
                     (float) s.getDouble("sound-pitch", 1.5),
-                    s.getDouble("backstab", 1.0),
+                    clamp(id, "backstab", s.getDouble("backstab", 1.0), 1, 10),
                     s.getString("effect", "none"),
-                    s.getInt("effect-ticks", 60),
-                    s.getInt("effect-level", 1),
-                    s.getInt("ricochet", 0)
+                    (int) clamp(id, "effect-ticks", s.getInt("effect-ticks", 60), 0, 1200),
+                    (int) clamp(id, "effect-level", s.getInt("effect-level", 1), 1, 10),
+                    (int) clamp(id, "ricochet", s.getInt("ricochet", 0), 0, 8)
                 ));
             }
         }
@@ -89,9 +91,9 @@ public final class GunRegistry {
                     id.toLowerCase(),
                     s.getString("name", id),
                     s.getString("model", "grenade_" + id),
-                    s.getDouble("power", 2.5),
-                    s.getInt("fuse-ticks", 25),
-                    s.getDouble("velocity", 1.5),
+                    clamp(id, "power", s.getDouble("power", 2.5), 0, 8),
+                    (int) clamp(id, "fuse-ticks", s.getInt("fuse-ticks", 25), 0, 200),
+                    clamp(id, "velocity", s.getDouble("velocity", 1.5), 0.1, 4),
                     s.getBoolean("break-blocks", false)
                 ));
             }
@@ -195,6 +197,16 @@ public final class GunRegistry {
             case "breakblocks" -> "break-blocks";
             default -> stat;
         };
+    }
+
+    private double clamp(String id, String stat, double value, double min, double max) {
+        double clamped = Math.max(min, Math.min(max, value));
+        if (clamped != value) {
+            plugin.getLogger().warning("'" + id + "' " + stat + "=" + value
+                + " is out of the safe range " + min + ".." + max + " - using " + clamped
+                + " (huge values can stall the server).");
+        }
+        return clamped;
     }
 
     private Integer parseInt(String v) {

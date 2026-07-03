@@ -116,6 +116,8 @@ public final class ShootListener implements Listener {
         player.getInventory().setItemInMainHand(item);
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
+        long shotStart = System.nanoTime();
+
         // Trace the bullet, bouncing off blocks up to gun.ricochet() times. After the first
         // bounce the shooter is a valid target too (your own ricochet CAN hit you).
         Location from = player.getEyeLocation();
@@ -124,16 +126,28 @@ public final class ShootListener implements Listener {
         int bounces = gun.ricochet();
         boolean firstSegment = true;
 
+        int tracerBudget = plugin.getConfig().getInt("tracer-max-points", 40);
+
         while (remaining > 0.5) {
             boolean excludeShooter = firstSegment;
-            RayTraceResult hit = player.getWorld().rayTrace(
-                from, dir, remaining, FluidCollisionMode.NEVER, true, 0.25,
-                e -> e instanceof LivingEntity && (!excludeShooter || e != player));
+
+            // Cheap block trace first; entities are then only searched up to the wall.
+            // A full-range entity sweep builds a huge bounding box (90 blocks for the
+            // rifle) and scans every entity in it - THE server-lag hotspot indoors.
+            RayTraceResult blockHit = player.getWorld().rayTraceBlocks(
+                from, dir, remaining, FluidCollisionMode.NEVER, true);
+            double searchDist = blockHit != null
+                ? from.toVector().distance(blockHit.getHitPosition())
+                : remaining;
+            RayTraceResult entityHit = searchDist > 0.1 ? player.getWorld().rayTraceEntities(
+                from, dir, searchDist, 0.25,
+                e -> e instanceof LivingEntity && (!excludeShooter || e != player)) : null;
+            RayTraceResult hit = entityHit != null ? entityHit : blockHit;
 
             Location end = hit != null
                 ? hit.getHitPosition().toLocation(player.getWorld())
                 : from.clone().add(dir.clone().multiply(remaining));
-            drawTracer(from, end, firstSegment ? 1.5 : 0.0);
+            tracerBudget -= drawTracer(from, end, firstSegment ? 1.5 : 0.0, tracerBudget);
 
             if (hit != null && hit.getHitEntity() instanceof LivingEntity target) {
                 applyHit(player, gun, target, dir, end);
@@ -147,16 +161,25 @@ public final class ShootListener implements Listener {
                 bounces--;
                 firstSegment = false;
                 player.getWorld().playSound(end, "minecraft:block.chain.hit", 0.7f, 1.8f);
-                player.getWorld().spawnParticle(Particle.WAX_OFF, end, 4, 0.05, 0.05, 0.05, 0.2);
+                player.getWorld().spawnParticle(Particle.WAX_OFF, end, 3, 0.05, 0.05, 0.05, 0.2);
                 continue;
             }
             if (hit != null) {
-                player.getWorld().spawnParticle(Particle.SMOKE, end, 4, 0.05, 0.05, 0.05, 0.01);
+                player.getWorld().spawnParticle(Particle.SMOKE, end, 3, 0.05, 0.05, 0.05, 0.01);
             }
             break;
         }
 
         player.sendActionBar(ammoBar(gun, ammo - 1));
+
+        // Lag canary: if one shot stalls the main thread noticeably, say so in the console
+        // with the entity count - that tells us WHY the server is slow, without guessing.
+        long ms = (System.nanoTime() - shotStart) / 1_000_000;
+        if (ms > 50) {
+            plugin.getLogger().warning("Slow shot: " + gun.id() + " took " + ms + " ms (world has "
+                + player.getWorld().getEntityCount() + " entities). If this repeats, entity"
+                + " buildup near players is the likely lag source.");
+        }
     }
 
     private void applyHit(Player shooter, Gun gun, LivingEntity target, Vector shotDir, Location end) {
@@ -202,15 +225,21 @@ public final class ShootListener implements Listener {
         target.addPotionEffect(new PotionEffect(type, gun.effectTicks(), Math.max(0, gun.effectLevel() - 1)));
     }
 
-    private void drawTracer(Location from, Location to, double skip) {
+    /** Draws up to maxPoints tracer particles; returns how many were spawned. */
+    private int drawTracer(Location from, Location to, double skip, int maxPoints) {
+        if (maxPoints <= 0) return 0;
+        double step = Math.max(0.5, plugin.getConfig().getDouble("tracer-step", 2.0));
         Vector dir = to.toVector().subtract(from.toVector());
         double length = dir.length();
-        if (length < 0.01) return;
+        if (length < 0.01) return 0;
         dir.normalize();
-        for (double d = skip; d < length; d += 1.0) {
+        int spawned = 0;
+        for (double d = skip; d < length && spawned < maxPoints; d += step) {
             Location p = from.clone().add(dir.clone().multiply(d));
             from.getWorld().spawnParticle(Particle.DUST, p, 1, 0, 0, 0, 0, TRACER);
+            spawned++;
         }
+        return spawned;
     }
 
     private Component ammoBar(Gun gun, int ammo) {

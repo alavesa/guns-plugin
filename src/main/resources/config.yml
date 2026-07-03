@@ -1,0 +1,4 @@
+# Performance tuning. Tracers are the heaviest cosmetic - raise the step / lower the cap
+# if the server or clients struggle.
+tracer-step: 2.0        # blocks between tracer particles (bigger = lighter)
+tracer-max-points: 40   # max tracer particles per shot

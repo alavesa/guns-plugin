@@ -18,6 +18,7 @@ public final class GunsPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        saveDefaultConfig();
         registry = new GunRegistry(this);
         registry.load();
         getServer().getPluginManager().registerEvents(new ShootListener(this, registry), this);
