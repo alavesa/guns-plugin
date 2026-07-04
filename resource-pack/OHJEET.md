@@ -60,6 +60,12 @@ Kranaatit ovat lumipalloja → `items/snowball.json`.
      (esim. `minecraft:block/iron_block`).
 4. Katso **Display-välilehti**: siellä säädetään miltä ase näyttää kädessä (1. ja 3. persoona),
    maassa ja inventaariossa. Kopioi lähtökohdaksi placeholder-mallin `display`-osio ja säädä.
+   - **ENNEN EXPORTTIA:** käy Outliner-lista (oikea laita) läpi ja poista kaikki ylimääräiset
+     esineet/elementit, jotka eivät kuulu malliin. Yksikin ylimääräinen osa vie exporttiin
+     oman (usein rikkinäisen) tekstuuriviittauksensa — ja Minecraft hylkää silloin KOKO
+     mallin, vaikka itse ase olisi täysin kunnossa. Tämä vika löytyi kantapään kautta:
+     malli toimii ilman tekstuuria mutta muuttuu violetiksi kuutioksi heti kun tekstuurin
+     lisää. Sama koskee tekstuurilistaa: vain käytössä olevat tekstuurit projektiin.
 5. Vie malli: **File → Export → Export Block/Item Model** → tallenna nimellä esim.
    `gun_sniper.json`.
 
