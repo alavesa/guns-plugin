@@ -79,7 +79,65 @@ Kranaatit ovat lumipalloja → `items/snowball.json`.
 5. Pelissä tekstuurit voi ladata uudelleen näppäimillä **F3+T** (jos paketti on omassa
    resourcepacks-kansiossa; serverin jakamana pitää liittyä uudelleen).
 
-## 6. Jos malli ei näy — tarkistuslista
+## 6. Tekstuurien vaihtaminen
+
+Placeholder-aseiden tekstuurit ovat vanillan blokkitekstuureja — siksi mallitiedostoissa
+(esim. `assets/guns/models/item/gun_pistol.json`) lukee:
+
+```json
+"textures": {
+  "0": "minecraft:block/iron_block",
+  "1": "minecraft:block/polished_blackstone"
+}
+```
+
+**Helppo tapa — käytä muita vanillan tekstuureja:** vaihda rivit osoittamaan mihin tahansa
+vanillan tekstuuriin, esim. `"minecraft:block/gold_block"` (kultainen ase!),
+`"minecraft:block/crimson_planks"`, `"minecraft:block/netherite_block"`. Ei tarvitse tehdä
+yhtään kuvatiedostoa.
+
+**Oma tekstuuri — piirrä itse:**
+1. Tee PNG-kuva (esim. 16×16 tai 32×32) — helpoiten Blockbenchissä, jossa voit maalata
+   suoraan mallin pintaan (Paint-välilehti).
+2. Tallenna se pakettiin: `assets/guns/textures/item/pistooli.png`
+3. Viittaa siihen mallissa: `"0": "guns:item/pistooli"`
+4. Pakkaa zip uudelleen + F3+T pelissä.
+
+Jos tekstuuri näkyy musta-violettina ruutuna, polku on väärin — tarkista että tiedostonimi
+ja viittaus täsmäävät (pienet kirjaimet, ei ääkkösiä tiedostonimissä).
+
+## 7. Äänien vaihtaminen
+
+Aseen laukausääni on **statti**, eli sen voi vaihtaa suoraan pelissä ilman pakettia:
+
+```
+/guns edit pistol sound minecraft:entity.generic.explode     (mikä tahansa vanillan ääni)
+/guns edit pistol soundpitch 1.8                              (korkeus: 0.5 = matala, 2.0 = kimeä)
+```
+
+Vanillan äänien nimet löydät pelistä komennolla `/playsound minecraft:` + tab-täydennys —
+kokeile ääniä sillä ennen kuin asetat ne aseeseen.
+
+**Omat äänet resource packiin:**
+1. Tee tai hanki ääni **.ogg**-muodossa (esim. Audacityllä: File → Export → OGG).
+   Ilmaisia pelikelpoisia ääniä: freesound.org (valitse CC0-lisenssi).
+2. Tallenna: `assets/guns/sounds/pistooli_pum.ogg`
+3. Luo tiedosto `assets/guns/sounds.json`:
+   ```json
+   {
+     "shot.pistooli": {
+       "sounds": ["guns:pistooli_pum"]
+     }
+   }
+   ```
+4. Pakkaa zip, ota käyttöön, ja kerro pluginille: `/guns edit pistol sound guns:shot.pistooli`
+5. Testaa ensin suoraan: `/playsound guns:shot.pistooli master @s` — jos se ei kuulu,
+   vika on paketissa (kohta 3:n avain tai tiedostopolku), ei pluginissa.
+
+Sama toimii kaikille pluginin äänille — myös Keycards-lukijan äänet vaihdetaan sen
+config.yml:ssä samanlaisiin avaimiin (esim. `keycards:reader.grant`).
+
+## 8. Jos malli ei näy — tarkistuslista
 
 - Näkyykö ase varsijousena? → merkkijono ei täsmää: `model`-statin, `crossbow.json`-casen
   ja mallitiedoston nimen pitää olla TÄSMÄLLEEN samat (isot/pienet kirjaimet!).
