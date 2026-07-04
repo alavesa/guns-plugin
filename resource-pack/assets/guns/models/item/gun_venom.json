@@ -30,7 +30,7 @@
       "name": "magazine",
       "from": [7.25, 3, 10],
       "to": [8.75, 8, 12.5],
-      "rotation": { "origin": [8, 7.5, 11], "axis": "x", "angle": 12.5 },
+      "rotation": { "origin": [8, 7.5, 11], "axis": "x", "angle": 22.5 },
       "faces": {
         "north": { "texture": "#0" }, "south": { "texture": "#0" },
         "east": { "texture": "#0" }, "west": { "texture": "#0" },
@@ -41,7 +41,7 @@
       "name": "grip",
       "from": [7, 3.5, 12.5],
       "to": [9, 8, 15],
-      "rotation": { "origin": [8, 8, 13.5], "axis": "x", "angle": -20 },
+      "rotation": { "origin": [8, 8, 13.5], "axis": "x", "angle": -22.5 },
       "faces": {
         "north": { "texture": "#0" }, "south": { "texture": "#0" },
         "east": { "texture": "#0" }, "west": { "texture": "#0" },
