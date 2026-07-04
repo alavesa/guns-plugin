@@ -1,0 +1,21 @@
+OMAT TEKSTUURIT TÄHÄN KANSIOON! (assets/minecraft/textures/item/)
+
+TÄRKEÄ OPPI (löydetty käytännössä, Minecraft 26.x):
+Tekstuurit laitetaan TÄHÄN minecraft-puolen kansioon, EI guns-kansioon.
+Mallitiedostossa viitataan ILMAN etuliitettä:
+
+    "textures": { "0": "item/pistooli", "particle": "item/pistooli" }
+
+ÄLÄ käytä muotoa "guns:item/pistooli" - se rikkoo koko mallin tällä
+peliversiolla (violetti kuutio), vaikka se olisi oikein kirjoitettu!
+
+Ohje:
+1. Tallenna PNG tähän kansioon (esim. pistooli.png).
+   - Ei ääkkösiä eikä isoja kirjaimia tiedostonimessä.
+2. Viittaa malliin yllä olevalla tavalla (ilman .png-päätettä).
+3. Pakkaa paketti niin, että pack.mcmeta on zipin JUURESSA
+   (valitse pack.mcmeta + assets ja pakkaa NE, älä kansiota).
+4. Pelissä F3+T.
+
+Testi: tässä kansiossa on example_gun.png - laita jonkin aseen malliin
+"0": "item/example_gun" ja tarkista että ase saa harmaan paneelipinnan.

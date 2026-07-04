@@ -1,9 +1,9 @@
 {
   "credit": "Placeholder pistol - replace with your own Blockbench model",
   "textures": {
-    "0": "minecraft:block/iron_block",
-    "1": "minecraft:block/polished_blackstone",
-    "particle": "minecraft:block/iron_block"
+    "0": "block/iron_block",
+    "1": "block/polished_blackstone",
+    "particle": "block/iron_block"
   },
   "elements": [
     {

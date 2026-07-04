@@ -1,9 +1,9 @@
 {
   "credit": "Placeholder frag grenade - replace with your own Blockbench model",
   "textures": {
-    "0": "minecraft:block/green_concrete",
-    "1": "minecraft:block/iron_block",
-    "particle": "minecraft:block/green_concrete"
+    "0": "block/green_concrete",
+    "1": "block/iron_block",
+    "particle": "block/green_concrete"
   },
   "elements": [
     {

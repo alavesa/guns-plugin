@@ -1,9 +1,9 @@
 {
   "credit": "Placeholder venom SMG - replace with your own Blockbench model",
   "textures": {
-    "0": "minecraft:block/polished_blackstone",
-    "1": "minecraft:block/green_concrete",
-    "particle": "minecraft:block/polished_blackstone"
+    "0": "block/polished_blackstone",
+    "1": "block/green_concrete",
+    "particle": "block/polished_blackstone"
   },
   "elements": [
     {

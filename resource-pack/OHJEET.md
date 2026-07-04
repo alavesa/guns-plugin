@@ -99,11 +99,12 @@ tekstuurikuvan, jossa jokaisella aseen pinnalla on oma kohtansa (UV-kartta).
    Blockbench kirjoittaa siihen oman nimensä — korjaa se muotoon `"guns:item/pistooli"`.
 6. Zippaa + F3+T.
 
-> ⚠️ **YLEISIN ANSA (testattu käytännössä!):** jos `textures`-rivillä lukee pelkkä
-> `"item/pistooli"` ILMAN `guns:`-alkua, peli etsii kuvaa Minecraftin omasta kansiosta
-> (`assets/minecraft/textures/item/`) eikä sinun kansiostasi — ja ase jää violetti-mustaksi
-> ruudukoksi, vaikka PNG on täysin oikeassa paikassa. Muista `guns:`-etuliite sekä `"0"`-
-> että `"particle"`-riville, joka ikisessä mallissa.
+> ⚠️ **TÄRKEIN SÄÄNTÖ (löydetty käytännössä, Minecraft 26.x):** tekstuurit laitetaan
+> kansioon `assets/minecraft/textures/item/` ja niihin viitataan ILMAN etuliitettä:
+> `"0": "item/pistooli"`. **ÄLÄ käytä muotoa `guns:item/pistooli`** — täysin oikein
+> kirjoitettunakin se rikkoo koko mallin tällä peliversiolla (violetti kuutio).
+> Mallien viittaukset `items/crossbow.json`-tiedostossa (`guns:item/gun_pistol`) sen
+> sijaan TOIMIVAT etuliitteellä — rajoitus koskee vain mallien tekstuuririvejä.
 
 Vanhat placeholder-tekstuurit (nopea kikka, ei kunnollinen):
 mallitiedostoissa (esim. `assets/guns/models/item/gun_pistol.json`) lukee:
