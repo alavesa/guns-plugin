@@ -83,6 +83,15 @@ function check(text) {
   }
   for (const k of texKeys) {
     const v = String(m.textures[k]);
+    // Resource location: only a-z, 0-9, _ . - / are allowed. One illegal character
+    // (capital letter, space, ä/ö) and Minecraft rejects the WHOLE model file.
+    const path = v.includes(":") ? v.split(":").slice(1).join(":") : v;
+    if (!/^[a-z0-9_.\-/]+$/.test(path)) {
+      const bad = [...new Set(path.replace(/[a-z0-9_.\-/]/g, ""))].join(" ");
+      problems.push(["err", `Tekstuuriviittaus "${k}": "${v}" sisältää kiellettyjä merkkejä (${bad || "iso kirjain"}). ` +
+        "Sallittuja ovat vain pienet kirjaimet a-z, numerot, _ . - ja / — ISOT kirjaimet, välilyönnit ja ääkköset " +
+        "kaatavat KOKO mallin (violetti kuutio). Nimeä tekstuuri uudelleen Blockbenchissä ja vie malli uudestaan."]);
+    }
     const ns = v.includes(":") ? v.split(":")[0] : "minecraft";
     if (ns !== "minecraft") {
       problems.push(["err", `Tekstuuriviittaus "${k}": "${v}" käyttää omaa nimiavaruutta ("${ns}:"). ` +
