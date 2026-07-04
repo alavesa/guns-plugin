@@ -140,18 +140,12 @@ Aseen laukausääni on **statti**, eli sen voi vaihtaa suoraan pelissä ilman pa
 Vanillan äänien nimet löydät pelistä komennolla `/playsound minecraft:` + tab-täydennys —
 kokeile ääniä sillä ennen kuin asetat ne aseeseen.
 
-**Omat äänet resource packiin:**
+**Omat äänet resource packiin** — kansiot ovat paketissa valmiina:
 1. Tee tai hanki ääni **.ogg**-muodossa (esim. Audacityllä: File → Export → OGG).
    Ilmaisia pelikelpoisia ääniä: freesound.org (valitse CC0-lisenssi).
-2. Tallenna: `assets/guns/sounds/pistooli_pum.ogg`
-3. Luo tiedosto `assets/guns/sounds.json`:
-   ```json
-   {
-     "shot.pistooli": {
-       "sounds": ["guns:pistooli_pum"]
-     }
-   }
-   ```
+2. Tallenna se valmiiseen kansioon `assets/guns/sounds/` (siellä on LUEMINUT.txt).
+3. Nimeä `assets/guns/sounds.json.esimerkki` → `sounds.json` ja muokkaa avain + tiedostonimi
+   omiksesi (malli tiedoston sisällä).
 4. Pakkaa zip, ota käyttöön, ja kerro pluginille: `/guns edit pistol sound guns:shot.pistooli`
 5. Testaa ensin suoraan: `/playsound guns:shot.pistooli master @s` — jos se ei kuulu,
    vika on paketissa (kohta 3:n avain tai tiedostopolku), ei pluginissa.

@@ -1,0 +1,13 @@
+OMAT ÄÄNET TÄHÄN KANSIOON!
+
+1. Tallenna äänitiedostot tähän kansioon .ogg-muodossa (esim. pistooli_pum.ogg).
+   - Ei ääkkösiä eikä isoja kirjaimia tiedostonimessä.
+   - MP3/WAV ei kelpaa - muunna .ogg:ksi esim. Audacityllä (File -> Export -> OGG).
+2. Nimeä viereisessä kansiossa oleva sounds.json.esimerkki -> sounds.json
+   ja muokkaa se osoittamaan omaan tiedostoosi (ohje tiedoston sisällä).
+3. Pakkaa paketti uudelleen (pack.mcmeta zipin juureen!) ja ota käyttöön.
+4. Testaa pelissä ENSIN suoraan: /playsound guns:shot.pistooli master @s
+   - jos kuuluu, kytke aseeseen: /guns edit pistol sound guns:shot.pistooli
+   - jos ei kuulu, vika on sounds.json-avaimessa tai tiedostopolussa.
+
+Ilmaisia pelikelpoisia ääniä: freesound.org (valitse CC0-lisenssi).

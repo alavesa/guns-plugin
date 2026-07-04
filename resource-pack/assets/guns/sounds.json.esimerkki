@@ -1,0 +1,10 @@
+{
+  "__ohje__": "Nimeä tämä tiedosto muotoon sounds.json ja poista tämä __ohje__-rivi. Avain (esim. shot.pistooli) on nimi jota käytät pelissä: /guns edit pistol sound guns:shot.pistooli. 'sounds'-listassa on tiedostonimi sounds-kansiosta ILMAN .ogg-päätettä, guns:-etuliitteellä.",
+
+  "shot.pistooli": {
+    "sounds": ["guns:pistooli_pum"]
+  },
+  "shot.haulikko": {
+    "sounds": ["guns:haulikko_pum"]
+  }
+}
