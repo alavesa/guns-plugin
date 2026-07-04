@@ -52,11 +52,16 @@ public final class GunsPlugin extends JavaPlugin {
                     return true;
                 }
                 case "give" -> {
+                    if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
                     if (args.length < 2) return usage(sender);
                     Gun gun = registry.get(args[1]);
                     Grenade grenade = gun == null ? registry.getGrenade(args[1]) : null;
                     if (gun == null && grenade == null) return error(sender, "Unknown gun/grenade: " + args[1]);
-                    Player target = args.length >= 3 ? Bukkit.getPlayerExact(args[2])
+                    boolean targetingOther = args.length >= 3;
+                    if (targetingOther && !sender.hasPermission("guns.admin")) {
+                        return error(sender, "You can only give guns to yourself.");
+                    }
+                    Player target = targetingOther ? Bukkit.getPlayerExact(args[2])
                         : (sender instanceof Player p ? p : null);
                     if (target == null) return error(sender, "Player not found.");
                     target.getInventory().addItem(gun != null ? registry.buildItem(gun) : registry.buildGrenadeItem(grenade));
