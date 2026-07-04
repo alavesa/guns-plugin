@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<title>Guns — mallitiedoston tarkistus</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; background: #1e1e28; color: #eee; }
+  h1 { font-size: 1.3rem; }
+  #drop { border: 2px dashed #888; border-radius: 10px; padding: 2.5rem 1rem; text-align: center; color: #aaa; cursor: pointer; }
+  #drop.hover { border-color: #6cf; color: #6cf; background: #26263a; }
+  textarea { width: 100%; height: 8rem; margin-top: 1rem; background: #14141c; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: .5rem; font-family: monospace; }
+  button { margin-top: .5rem; padding: .5rem 1.2rem; font-size: 1rem; border-radius: 6px; border: none; background: #4a7; color: #fff; cursor: pointer; }
+  .err  { background: #4a2020; border-left: 4px solid #e55; padding: .6rem .8rem; margin: .5rem 0; border-radius: 4px; }
+  .warn { background: #4a3d20; border-left: 4px solid #eb5; padding: .6rem .8rem; margin: .5rem 0; border-radius: 4px; }
+  .ok   { background: #204a28; border-left: 4px solid #5e5; padding: .6rem .8rem; margin: .5rem 0; border-radius: 4px; }
+  .info { color: #999; font-size: .9rem; }
+  code { background: #14141c; padding: 0 .3rem; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>🔫 Guns — mallitiedoston tarkistus</h1>
+<p class="info">Pudota Blockbenchistä viety <code>.json</code>-mallitiedosto alle (tai liitä sen sisältö
+tekstikenttään). Sivu tarkistaa samat asiat, joista Minecraft hylkää mallin äänettömästi
+ja näyttää violetin kuution. Mikään ei lähde minnekään — tarkistus tapahtuu omalla koneella.</p>
+
+<div id="drop">Pudota mallitiedosto tähän<br>tai klikkaa valitaksesi tiedosto</div>
+<input type="file" id="file" accept=".json" style="display:none">
+<textarea id="paste" placeholder='...tai liitä tiedoston koko sisältö tähän ja paina "Tarkista"'></textarea>
+<button id="check">Tarkista</button>
+<div id="out"></div>
+
+<script>
+const ALLOWED_ANGLES = [-45, -22.5, 0, 22.5, 45];
+const FACE_NAMES = ["north", "south", "east", "west", "up", "down"];
+
+function report(list) {
+  const out = document.getElementById("out");
+  out.innerHTML = "";
+  if (list.length === 0) {
+    list.push(["ok", "Ei virheitä! Jos malli silti näkyy violettina kuutiona, vika on paketin rakenteessa: " +
+      "onko tiedosto varmasti polussa assets/guns/models/item/ ja pack.mcmeta zipin JUURESSA?"]);
+  }
+  for (const [cls, msg] of list) {
+    const div = document.createElement("div");
+    div.className = cls;
+    div.textContent = msg;
+    out.appendChild(div);
+  }
+}
+
+function elemName(el, i) {
+  return el && el.name ? `"${el.name}" (elementti ${i + 1})` : `elementti ${i + 1}`;
+}
+
+function check(text) {
+  const problems = [];
+
+  // BOM: Windows-editorit (esim. Notepad++ "UTF-8-BOM") lisäävät näkymättömän merkin
+  // tiedoston alkuun, ja Minecraft hylkää silloin koko tiedoston.
+  if (text.charCodeAt(0) === 0xFEFF) {
+    problems.push(["err", "Tiedoston alussa on näkymätön BOM-merkki — Minecraft hylkää tällaisen tiedoston. " +
+      "Korjaus Notepad++:ssa: Encoding-valikko → 'UTF-8' (EI 'UTF-8-BOM') → tallenna uudelleen."]);
+    text = text.slice(1);
+  }
+
+  let m;
+  try {
+    m = JSON.parse(text);
+  } catch (e) {
+    problems.push(["err", "Tiedosto ei ole kelvollista JSONia: " + e.message +
+      " — yleisimmät syyt: ylimääräinen pilkku viimeisen rivin perässä tai puuttuva sulku."]);
+    report(problems);
+    return;
+  }
+
+  if (m.parent) {
+    problems.push(["warn", `Mallilla on "parent": "${m.parent}" — jos tuota mallia ei ole olemassa, koko malli hylätään.`]);
+  }
+
+  const texKeys = m.textures ? Object.keys(m.textures) : [];
+  if (!m.textures || texKeys.length === 0) {
+    problems.push(["err", 'Mallista puuttuu "textures"-osio kokonaan — jokainen pinta näkyy violetti-mustana.']);
+  }
+  for (const k of texKeys) {
+    const v = String(m.textures[k]);
+    const ns = v.includes(":") ? v.split(":")[0] : "minecraft";
+    if (ns !== "minecraft") {
+      problems.push(["err", `Tekstuuriviittaus "${k}": "${v}" käyttää omaa nimiavaruutta ("${ns}:"). ` +
+        "Tässä paketissa tekstuurit ovat minecraft-puolella: laita png kansioon " +
+        "assets/minecraft/textures/item/ ja viittaa ilman etuliitettä, esim. \"item/gun_pistol\"."]);
+    }
+  }
+
+  if (!Array.isArray(m.elements) || m.elements.length === 0) {
+    problems.push(["err", 'Mallissa ei ole yhtään kuutiota ("elements" puuttuu tai on tyhjä).']);
+  }
+  (m.elements || []).forEach((el, i) => {
+    for (const key of ["from", "to"]) {
+      const arr = el[key];
+      if (!Array.isArray(arr) || arr.length !== 3 || arr.some(n => typeof n !== "number")) {
+        problems.push(["err", `${elemName(el, i)}: "${key}" ei ole kolmen luvun lista.`]);
+        continue;
+      }
+      arr.forEach((n, ax) => {
+        if (n < -16 || n > 32) {
+          problems.push(["err", `${elemName(el, i)}: "${key}" sisältää arvon ${n} — sallittu alue on -16…32. ` +
+            "Koko malli hylätään tämän takia. Siirrä tai pienennä kuutiota Blockbenchissä."]);
+        }
+      });
+    }
+    if (el.rotation) {
+      const r = el.rotation;
+      if (!ALLOWED_ANGLES.includes(r.angle)) {
+        problems.push(["err", `${elemName(el, i)}: kääntökulma ${r.angle}° ei kelpaa — Minecraft sallii VAIN ` +
+          "arvot -45, -22.5, 0, 22.5 ja 45. Koko malli hylätään tämän takia. " +
+          "Blockbenchissä: valitse kuutio ja aseta kulma johonkin sallituista arvoista."]);
+      }
+      if (!["x", "y", "z"].includes(r.axis)) {
+        problems.push(["err", `${elemName(el, i)}: rotaation "axis" on "${r.axis}" — pitää olla "x", "y" tai "z" (yksi akseli per kuutio).`]);
+      }
+    }
+    for (const [face, f] of Object.entries(el.faces || {})) {
+      if (!FACE_NAMES.includes(face)) {
+        problems.push(["err", `${elemName(el, i)}: tuntematon pinta "${face}" (sallitut: ${FACE_NAMES.join(", ")}).`]);
+      }
+      if (f && f.uv) {
+        if (f.uv.length !== 4 || f.uv.some(n => n < 0 || n > 16)) {
+          problems.push(["err", `${elemName(el, i)}, pinta "${face}": uv [${f.uv}] — jokaisen arvon pitää olla välillä 0…16.`]);
+        }
+      }
+      if (f && typeof f.texture === "string" && f.texture.startsWith("#")) {
+        const ref = f.texture.slice(1);
+        if (texKeys.length > 0 && !texKeys.includes(ref)) {
+          problems.push(["err", `${elemName(el, i)}, pinta "${face}": viittaa tekstuuriin "#${ref}", ` +
+            `mutta "textures"-osiossa ei ole avainta "${ref}" (siellä on: ${texKeys.join(", ")}). ` +
+            "Tämä pinta näkyy violetti-mustana."]);
+        }
+      }
+    }
+  });
+
+  if (!m.display) {
+    problems.push(["warn", 'Mallista puuttuu "display"-osio — ase toimii, mutta näkyy kädessä oudossa asennossa ja koossa. ' +
+      "Kopioi lähtökohdaksi placeholder-mallin display-osio."]);
+  }
+
+  report(problems);
+}
+
+const drop = document.getElementById("drop");
+const fileInput = document.getElementById("file");
+drop.addEventListener("click", () => fileInput.click());
+drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("hover"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("hover"));
+drop.addEventListener("drop", e => {
+  e.preventDefault();
+  drop.classList.remove("hover");
+  if (e.dataTransfer.files[0]) e.dataTransfer.files[0].text().then(check);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files[0]) fileInput.files[0].text().then(check);
+});
+document.getElementById("check").addEventListener("click", () => {
+  const t = document.getElementById("paste").value;
+  if (t.trim()) check(t);
+});
+</script>
+</body>
+</html>

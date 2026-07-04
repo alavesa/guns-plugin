@@ -162,9 +162,18 @@ config.yml:ssä samanlaisiin avaimiin (esim. `keycards:reader.grant`).
 
 ## 8. Jos malli ei näy — tarkistuslista
 
+**Nopein tapa: `tarkista-malli.html`** (tässä kansiossa ja releasen liitteenä). Avaa se
+selaimessa (tuplaklikkaus riittää) ja pudota mallitiedosto siihen — se tarkistaa kerralla
+kaikki alla olevat syyt ja kertoo suomeksi, mikä kohta Minecraftia ei kelpaa.
+
 - Näkyykö ase varsijousena? → merkkijono ei täsmää: `model`-statin, `crossbow.json`-casen
   ja mallitiedoston nimen pitää olla TÄSMÄLLEEN samat (isot/pienet kirjaimet!).
-- Näkyykö musta-violetti ruutu? → malli löytyi mutta tekstuuri ei: tarkista mallin
-  `textures`-polut.
+- Näkyykö violetti KUUTIO? → Minecraft hylkäsi koko mallitiedoston. Tarkan syyn kertoo
+  pelin loki: `logs/latest.log` pelikansiossa — etsi rivi, jossa mallin nimi mainitaan.
+  Yleisimmät syyt: JSON-syntaksivirhe (esim. ylimääräinen pilkku), kuution koordinaatti
+  alueen −16…32 ulkopuolella, kääntökulma joka ei ole −45/−22.5/0/22.5/45, tai näkymätön
+  BOM-merkki tiedoston alussa (Notepad++: Encoding-valikko → "UTF-8", EI "UTF-8-BOM").
+- Näkyykö musta-violetti ruutu oikean muotoisessa aseessa? → malli latautui mutta tekstuuri
+  ei: tarkista mallin `textures`-polut.
 - Ei mitään muutosta? → paketti ei ole käytössä tai zipin juuressa ei ole `pack.mcmeta`a.
 - Vanha malli näkyy? → F3+T, tai serveripaketin tapauksessa vaihda zipin nimi/sha1.
