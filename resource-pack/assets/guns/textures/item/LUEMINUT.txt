@@ -1,0 +1,14 @@
+OMAT TEKSTUURIT TÄHÄN KANSIOON!
+
+1. Tallenna PNG-kuvasi tähän kansioon (esim. pistooli.png).
+   - Ei ääkkösiä eikä isoja kirjaimia tiedostonimessä.
+2. Viittaa siihen mallitiedostossa (assets/guns/models/item/*.json) näin:
+       "textures": { "0": "guns:item/pistooli" }
+   (ilman .png-päätettä!)
+3. Pakkaa paketti uudelleen niin, että pack.mcmeta on zipin JUURESSA
+   (valitse pack.mcmeta + assets ja pakkaa NE, älä kansiota).
+4. Pelissä F3+T lataa paketin uudelleen.
+
+Kokeile ensin valmiilla esimerkillä: tässä kansiossa on example_gun.png.
+Vaihda jonkin aseen malliin "0": "guns:item/example_gun" ja katso että se toimii -
+sitten tiedät että ketju on kunnossa ja voit vaihtaa oman kuvasi tilalle.

@@ -81,8 +81,26 @@ Kranaatit ovat lumipalloja → `items/snowball.json`.
 
 ## 6. Tekstuurien vaihtaminen
 
-Placeholder-aseiden tekstuurit ovat vanillan blokkitekstuureja — siksi mallitiedostoissa
-(esim. `assets/guns/models/item/gun_pistol.json`) lukee:
+**Tärkeä ymmärtää:** paketin placeholder-aseet käyttävät vanillan blokkitekstuureja vain
+siksi, ettei paketti tarvinnut yhtään kuvatiedostoa toimiakseen. Se EI ole oikea tapa
+teksturoida — blokkitekstuuri toistuu jokaisella pinnalla samanlaisena eikä yksityiskohtia
+voi maalata. **Oikea tapa on maalata malli Blockbenchissä** (alla), jolloin saat yhden
+tekstuurikuvan, jossa jokaisella aseen pinnalla on oma kohtansa (UV-kartta).
+
+**Oikea tapa — Blockbench-maalaus:**
+1. Avaa (tai tee) malli Blockbenchissä.
+2. Vasen alakulma: **Textures → + → Create Texture** (esim. 32×32, "Template"-valinta
+   tekee pohjan jossa jokainen pinta on valmiiksi omassa kohdassaan!).
+3. Vaihda **Paint-tilaan** (oikea yläkulma) ja maalaa suoraan mallin pintaan — Blockbench
+   hoitaa UV-kartat puolestasi.
+4. Tallenna tekstuuri: Textures-listassa oikea klikkaus → Save As →
+   `assets/guns/textures/item/pistooli.png`
+5. Vie malli (File → Export → Block/Item Model) ja **tarkista mallin `textures`-kohta**:
+   Blockbench kirjoittaa siihen oman nimensä — korjaa se muotoon `"guns:item/pistooli"`.
+6. Zippaa + F3+T.
+
+Vanhat placeholder-tekstuurit (nopea kikka, ei kunnollinen):
+mallitiedostoissa (esim. `assets/guns/models/item/gun_pistol.json`) lukee:
 
 ```json
 "textures": {
@@ -99,9 +117,13 @@ yhtään kuvatiedostoa.
 **Oma tekstuuri — piirrä itse:**
 1. Tee PNG-kuva (esim. 16×16 tai 32×32) — helpoiten Blockbenchissä, jossa voit maalata
    suoraan mallin pintaan (Paint-välilehti).
-2. Tallenna se pakettiin: `assets/guns/textures/item/pistooli.png`
-3. Viittaa siihen mallissa: `"0": "guns:item/pistooli"`
+2. Tallenna se pakettiin kansioon `assets/guns/textures/item/` — **kansio on paketissa
+   valmiina**, ja siellä on esimerkkitekstuuri (`example_gun.png`) + LUEMINUT.txt.
+3. Viittaa siihen mallissa: `"0": "guns:item/pistooli"` (ilman .png-päätettä).
 4. Pakkaa zip uudelleen + F3+T pelissä.
+
+Hyvä ensitesti: vaihda jonkin aseen malliin `"0": "guns:item/example_gun"` — jos ase saa
+harmaan paneelitekstuurin, koko ketju toimii ja voit vaihtaa oman kuvasi tilalle.
 
 Jos tekstuuri näkyy musta-violettina ruutuna, polku on väärin — tarkista että tiedostonimi
 ja viittaus täsmäävät (pienet kirjaimet, ei ääkkösiä tiedostonimissä).
