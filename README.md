@@ -1,5 +1,7 @@
 # Guns — config-driven custom guns for Paper
 
+[![Reviewed by PatchPilots](https://img.shields.io/badge/Reviewed%20by-PatchPilots-8A2BE2)](https://github.com/alavesa/patchpilots)
+
 Custom guns **and grenades** for Paper servers: define them in `guns.yml` or create and edit
 them **in-game**, each with its own name, damage, fire rate, range, magazine, reload time,
 sound and resource pack model — plus **backstab bonus damage**, **bleed/poison hit effects**
