@@ -10,7 +10,6 @@
 #   reload-ticks how long a reload takes (20 ticks = 1 second)
 #   sound        shot sound (namespaced key - resource pack custom sounds work too)
 #   sound-pitch  pitch of the shot sound
-#   backstab     damage multiplier when shooting a target from behind (1.0 = off)
 #   effect       "none", "bleed", or a potion effect name (poison, wither, slowness, glowing...)
 #   effect-ticks how long the effect lasts (20 = 1s)
 #   effect-level bleed: damage per second | potions: effect strength (1 = level I)
@@ -29,7 +28,10 @@
 #
 # Mag stats:
 #   name / model as above (model on a prismarine shard item)
-#   capacity     rounds one mag loads (capped at the gun's own magazine size)
+#   capacity     currently COSMETIC - one mag always fills the gun to its own
+#                magazine size; the field is kept for older configs
+#
+# (a leftover "backstab" key on a gun is ignored - the mechanic was removed in 0.6.0)
 
 guns:
   pistol:
@@ -42,7 +44,6 @@ guns:
     reload-ticks: 25
     sound: "minecraft:block.stone_button.click_on"
     sound-pitch: 0.6
-    backstab: 1.5
     effect: none
     effect-ticks: 60
     effect-level: 1
@@ -58,7 +59,6 @@ guns:
     reload-ticks: 45
     sound: "minecraft:entity.firework_rocket.blast"
     sound-pitch: 1.4
-    backstab: 2.0
     effect: none
     effect-ticks: 60
     effect-level: 1
@@ -74,7 +74,6 @@ guns:
     reload-ticks: 35
     sound: "minecraft:block.bamboo.hit"
     sound-pitch: 1.8
-    backstab: 1.5
     effect: poison
     effect-ticks: 80
     effect-level: 1

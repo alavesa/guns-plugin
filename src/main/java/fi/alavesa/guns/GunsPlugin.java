@@ -101,6 +101,15 @@ public final class GunsPlugin extends JavaPlugin {
                             ? " (re-run /guns give to see it on the item)" : ""), NamedTextColor.GOLD));
                     return true;
                 }
+                case "remove" -> {
+                    if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
+                    if (args.length < 2) return usage(sender);
+                    String problem = registry.remove(args[1]);
+                    if (problem != null) return error(sender, problem);
+                    sender.sendMessage(Component.text("Removed '" + args[1].toLowerCase()
+                        + "' from guns.yml. Already-given items of it are now inert.", NamedTextColor.GOLD));
+                    return true;
+                }
                 case "reload" -> {
                     if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
                     registry.load();
@@ -119,11 +128,18 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> filter(Stream.of("list", "give", "create", "edit", "reload"), args[0]);
-            case 2 -> args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")
-                ? filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())
-                    .flatMap(java.util.Collection::stream), args[1])
-                : List.of();
+            case 1 -> filter(Stream.of("list", "give", "create", "edit", "remove", "reload"), args[0]);
+            case 2 -> {
+                if (args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")) {
+                    yield filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())
+                        .flatMap(java.util.Collection::stream), args[1]);
+                }
+                if (args[0].equalsIgnoreCase("remove")) { // guns and mags only
+                    yield filter(Stream.of(registry.ids(), registry.magIds())
+                        .flatMap(java.util.Collection::stream), args[1]);
+                }
+                yield List.of();
+            }
             case 3 -> {
                 if (args[0].equalsIgnoreCase("edit")) {
                     yield registry.getGrenade(args[1]) != null
@@ -145,7 +161,7 @@ public final class GunsPlugin extends JavaPlugin {
 
     private boolean usage(CommandSender sender) {
         sender.sendMessage(Component.text(
-            "/guns list | give <id> [player] | create <id> [gun|grenade|mag] | edit <id> <stat> <value> | reload",
+            "/guns list | give <id> [player] | create <id> [gun|grenade|mag] | edit <id> <stat> <value> | remove <gun|mag id> | reload",
             NamedTextColor.GOLD));
         sender.sendMessage(Component.text("Gun stats: " + String.join(", ", GunRegistry.GUN_EDITABLE), NamedTextColor.GRAY));
         sender.sendMessage(Component.text("Grenade stats: " + String.join(", ", GunRegistry.GRENADE_EDITABLE), NamedTextColor.GRAY));

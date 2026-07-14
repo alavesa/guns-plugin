@@ -27,7 +27,7 @@ public final class GunRegistry {
 
     public static final Set<String> GUN_EDITABLE = Set.of(
         "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
-        "sound", "soundpitch", "backstab", "effect", "effectticks", "effectlevel", "ricochet", "mag");
+        "sound", "soundpitch", "effect", "effectticks", "effectlevel", "ricochet", "mag");
 
     public static final Set<String> GRENADE_EDITABLE = Set.of(
         "name", "model", "power", "fuseticks", "velocity", "breakblocks");
@@ -120,7 +120,7 @@ public final class GunRegistry {
                     (int) clamp(id, "reload-ticks", s.getInt("reload-ticks", 30), 0, 200),
                     s.getString("sound", "minecraft:entity.firework_rocket.blast"),
                     (float) s.getDouble("sound-pitch", 1.5),
-                    clamp(id, "backstab", s.getDouble("backstab", 1.0), 1, 10),
+                    // (a leftover "backstab" key from pre-0.6.0 configs is simply ignored)
                     s.getString("effect", "none"),
                     (int) clamp(id, "effect-ticks", s.getInt("effect-ticks", 60), 0, 1200),
                     (int) clamp(id, "effect-level", s.getInt("effect-level", 1), 1, 10),
@@ -228,7 +228,6 @@ public final class GunRegistry {
             yaml.set("guns." + key + ".reload-ticks", 30);
             yaml.set("guns." + key + ".sound", "minecraft:entity.firework_rocket.blast");
             yaml.set("guns." + key + ".sound-pitch", 1.5);
-            yaml.set("guns." + key + ".backstab", 1.0);
             yaml.set("guns." + key + ".effect", "none");
             yaml.set("guns." + key + ".effect-ticks", 60);
             yaml.set("guns." + key + ".effect-level", 1);
@@ -238,6 +237,33 @@ public final class GunRegistry {
         yaml.save(file);
         load();
         return true;
+    }
+
+    /** Delete a gun or mag from guns.yml and the live registry. Returns an error
+     *  message, or null on success. A mag some gun still reloads from is protected -
+     *  removing it would leave that gun impossible to reload. */
+    public String remove(String id) throws IOException {
+        String key = id.toLowerCase();
+        if (guns.containsKey(key)) {
+            yaml.set("guns." + key, null);
+            plugin.getLogger().info("Removed gun '" + key + "' from guns.yml.");
+        } else if (mags.containsKey(key)) {
+            List<String> users = guns.values().stream()
+                .filter(g -> key.equals(g.magId())).map(Gun::id).toList();
+            if (!users.isEmpty()) {
+                return "Mag '" + key + "' is still used by: " + String.join(", ", users)
+                    + ". Repoint them first (/guns edit <gun> mag <mag-id|none>).";
+            }
+            yaml.set("mags." + key, null);
+            plugin.getLogger().info("Removed mag '" + key + "' from guns.yml.");
+        } else if (grenades.containsKey(key)) {
+            return "'" + key + "' is a grenade - only guns and mags can be removed.";
+        } else {
+            return "Unknown gun/mag: " + id;
+        }
+        yaml.save(file);
+        load();
+        return null;
     }
 
     /** Edit one stat of a gun, grenade or mag. Returns an error message, or null on success. */
@@ -368,11 +394,10 @@ public final class GunRegistry {
     }
 
     /** Mag item: a prismarine shard reskinned by the resource pack, stacking to 16.
-     *  Identity and capacity ride the item (PDC), so an already-given mag keeps working
-     *  even if its config entry is later removed - though capacity edits DO apply live
-     *  while the entry exists. Keep the PDC to id + capacity ONLY: both are identical
-     *  for every mag of a type, so identical mags keep stacking with each other
-     *  (per-item data like UUIDs or timestamps would break that). */
+     *  Identity rides the item (PDC); capacity is stamped too but is currently cosmetic -
+     *  since 0.6.0 one mag always fills the gun to its own magazine size. Keep the PDC
+     *  to id + capacity ONLY: both are identical for every mag of a type, so identical
+     *  mags keep stacking with each other (per-item data like UUIDs would break that). */
     public ItemStack buildMagItem(Mag mag) {
         ItemStack item = new ItemStack(Material.PRISMARINE_SHARD);
         ItemMeta meta = item.getItemMeta();
@@ -411,16 +436,6 @@ public final class GunRegistry {
     public String magIdOf(ItemStack item) {
         if (item == null || item.getType() != Material.PRISMARINE_SHARD || !item.hasItemMeta()) return null;
         return item.getItemMeta().getPersistentDataContainer().get(magKey, PersistentDataType.STRING);
-    }
-
-    /** Rounds this mag item loads: the live registry value if the mag still exists
-     *  (so /guns edit applies to mags already in pockets), else what's stamped on the item. */
-    public int magCapacityOf(ItemStack item) {
-        Mag mag = getMag(magIdOf(item));
-        if (mag != null) return mag.capacity();
-        Integer stamped = item.getItemMeta().getPersistentDataContainer()
-            .get(magCapacityKey, PersistentDataType.INTEGER);
-        return stamped == null ? 0 : stamped;
     }
 
     public int ammoOf(ItemStack item) {

@@ -1,17 +1,18 @@
 name: Guns
-version: '0.5.0'
+version: '0.6.0'
 main: fi.alavesa.guns.GunsPlugin
 api-version: '1.21'
 author: Piia Alavesa
 description: Config-driven custom guns with in-game create/edit, crossbow aiming pose.
 commands:
   guns:
-    description: Gun commands - list, give, create, edit, reload
+    description: Gun commands - list, give, create, edit, remove, reload
     usage: |
       /guns list
       /guns give <id> [player]
       /guns create <id> [gun|grenade|mag]
       /guns edit <id> <stat> <value>
+      /guns remove <gun|mag id>
       /guns reload
 permissions:
   guns.use:
@@ -21,5 +22,5 @@ permissions:
     description: Get guns with /guns give
     default: true
   guns.admin:
-    description: Create and edit guns
+    description: Create, edit and remove guns
     default: op

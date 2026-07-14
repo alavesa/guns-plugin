@@ -33,9 +33,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * Right-click with a gun = one shot (instant raytrace, no projectile). The gun item is a
  * charged crossbow purely for the AIMING POSE - all vanilla crossbow firing is cancelled.
  * F (swap-hands) reloads; guns with a mag stat consume one matching magazine item from the
- * inventory. Bullets can ricochet off blocks (gun stat), hits from behind get the backstab
- * multiplier, hits can apply bleed or any potion effect, and shot players are told where
- * they were hit (head/chest/stomach/arm/leg/foot, with head/leg damage scaling).
+ * inventory (one mag = a full gun). Bullets can ricochet off blocks (gun stat), hits can
+ * apply bleed or any potion effect, and shot players are told where they were hit
+ * (head/chest/stomach/arm/leg/foot, with head/leg damage scaling).
  */
 public final class ShootListener implements Listener {
 
@@ -100,7 +100,6 @@ public final class ShootListener implements Listener {
             ItemStack now = player.getInventory().getItemInMainHand();
             Gun held = registry.gunOf(now);
             if (held == null || !held.id().equals(gun.id())) return; // switched items mid-reload
-            int rounds = held.magazine();
             if (held.requiresMag()) {
                 // Re-find the mag: it may have been dropped/moved during the reload timer.
                 int slot = findMagSlot(player, held.magId());
@@ -108,15 +107,15 @@ public final class ShootListener implements Listener {
                     noMagazine(player);
                     return;
                 }
+                // One mag = a full gun, whatever the mag's cosmetic capacity number says.
                 ItemStack magItem = player.getInventory().getItem(slot);
-                rounds = Math.min(registry.magCapacityOf(magItem), held.magazine());
                 if (magItem.getAmount() <= 1) player.getInventory().setItem(slot, null);
                 else magItem.setAmount(magItem.getAmount() - 1);
             }
-            registry.setAmmo(now, rounds);
+            registry.setAmmo(now, held.magazine());
             player.getInventory().setItemInMainHand(now);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
-            ammoBar.update(player, held, rounds);
+            ammoBar.update(player, held, held.magazine());
         }, gun.reloadTicks());
     }
 
@@ -188,7 +187,7 @@ public final class ShootListener implements Listener {
             tracerBudget -= drawTracer(from, end, firstSegment ? 1.5 : 0.0, tracerBudget);
 
             if (hit != null && hit.getHitEntity() instanceof LivingEntity target) {
-                applyHit(player, gun, target, dir, end);
+                applyHit(player, gun, target, end);
                 break;
             }
             if (hit != null && hit.getHitBlock() != null && bounces > 0 && hit.getHitBlockFace() != null) {
@@ -220,11 +219,8 @@ public final class ShootListener implements Listener {
         }
     }
 
-    private void applyHit(Player shooter, Gun gun, LivingEntity target, Vector shotDir, Location end) {
-        // Backstab: the shot direction roughly matches the way the target is facing
-        boolean backstab = gun.backstab() > 1.0
-            && target.getLocation().getDirection().normalize().dot(shotDir.clone().normalize()) > 0.5;
-        double damage = backstab ? gun.damage() * gun.backstab() : gun.damage();
+    private void applyHit(Player shooter, Gun gun, LivingEntity target, Location end) {
+        double damage = gun.damage();
 
         // Hit location (players only): tell the victim where the round landed, and
         // scale damage - headshots hurt more, leg/foot hits are grazes.
@@ -239,14 +235,10 @@ public final class ShootListener implements Listener {
 
         target.damage(damage, shooter);
         target.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);
-        if (backstab) {
-            shooter.sendActionBar(Component.text("Backstab!", NamedTextColor.DARK_RED));
-            shooter.getWorld().playSound(end, "minecraft:entity.player.attack.crit", 1f, 0.8f);
-        }
         if (part != null) {
             ((Player) target).sendActionBar(Component.text("You were shot in the " + part + ".",
                 NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
-            if (part.equals("head") && !backstab) { // backstab already owns the shooter's actionbar
+            if (part.equals("head")) {
                 shooter.sendActionBar(Component.text("Headshot.", NamedTextColor.GRAY)
                     .decorate(TextDecoration.ITALIC));
             }
