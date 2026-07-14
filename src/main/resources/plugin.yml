@@ -1,6 +1,7 @@
 name: Guns
-version: '0.6.0'
+version: '0.6.1'
 main: fi.alavesa.guns.GunsPlugin
+softdepend: [Labra]
 api-version: '1.21'
 author: Piia Alavesa
 description: Config-driven custom guns with in-game create/edit, crossbow aiming pose.

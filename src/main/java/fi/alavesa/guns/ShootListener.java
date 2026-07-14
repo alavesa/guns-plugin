@@ -84,7 +84,7 @@ public final class ShootListener implements Listener {
         event.setCancelled(true);
         if (reloading.contains(player.getUniqueId())) return;
         if (registry.ammoOf(item) >= gun.magazine()) {
-            player.sendActionBar(Component.text("Magazine full", NamedTextColor.GRAY));
+            Msg.actionbar(player, Component.text("Magazine full", NamedTextColor.GRAY));
             return;
         }
         if (gun.requiresMag() && findMagSlot(player, gun.magId()) == -1) {
@@ -92,7 +92,7 @@ public final class ShootListener implements Listener {
             return;
         }
         reloading.add(player.getUniqueId());
-        player.sendActionBar(Component.text("Reloading...", NamedTextColor.YELLOW));
+        Msg.actionbar(player, Component.text("Reloading...", NamedTextColor.YELLOW));
         player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_middle", 1f, 1f);
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             reloading.remove(player.getUniqueId());
@@ -130,7 +130,7 @@ public final class ShootListener implements Listener {
 
     /** Reload refused: dry click, nothing to feed the gun with. */
     private void noMagazine(Player player) {
-        player.sendActionBar(Component.text("No magazine.", NamedTextColor.GRAY)
+        Msg.actionbar(player, Component.text("No magazine.", NamedTextColor.GRAY)
             .decorate(TextDecoration.ITALIC));
         player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
     }
@@ -146,7 +146,7 @@ public final class ShootListener implements Listener {
         int ammo = registry.ammoOf(item);
         if (ammo <= 0) {
             player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
-            player.sendActionBar(Component.text("Out of ammo - press F to reload", NamedTextColor.RED));
+            Msg.actionbar(player, Component.text("Out of ammo - press F to reload", NamedTextColor.RED));
             return;
         }
         registry.setAmmo(item, ammo - 1);
@@ -239,7 +239,7 @@ public final class ShootListener implements Listener {
             ((Player) target).sendActionBar(Component.text("You were shot in the " + part + ".",
                 NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
             if (part.equals("head")) {
-                shooter.sendActionBar(Component.text("Headshot.", NamedTextColor.GRAY)
+                Msg.actionbar(shooter, Component.text("Headshot.", NamedTextColor.GRAY)
                     .decorate(TextDecoration.ITALIC));
             }
         }
