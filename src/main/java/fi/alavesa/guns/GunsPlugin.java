@@ -38,7 +38,8 @@ public final class GunsPlugin extends JavaPlugin {
             }
         }, 20L, 5L);
 
-        getLogger().info("Guns enabled - guns: " + registry.ids() + ", grenades: " + registry.grenadeIds());
+        getLogger().info("Guns enabled - guns: " + registry.ids() + ", grenades: " + registry.grenadeIds()
+            + ", mags: " + registry.magIds());
     }
 
     @Override
@@ -48,7 +49,8 @@ public final class GunsPlugin extends JavaPlugin {
             switch (args[0].toLowerCase()) {
                 case "list" -> {
                     sender.sendMessage(Component.text("Guns: " + String.join(", ", registry.ids())
-                        + " | Grenades: " + String.join(", ", registry.grenadeIds()), NamedTextColor.GOLD));
+                        + " | Grenades: " + String.join(", ", registry.grenadeIds())
+                        + " | Mags: " + String.join(", ", registry.magIds()), NamedTextColor.GOLD));
                     return true;
                 }
                 case "give" -> {
@@ -56,7 +58,10 @@ public final class GunsPlugin extends JavaPlugin {
                     if (args.length < 2) return usage(sender);
                     Gun gun = registry.get(args[1]);
                     Grenade grenade = gun == null ? registry.getGrenade(args[1]) : null;
-                    if (gun == null && grenade == null) return error(sender, "Unknown gun/grenade: " + args[1]);
+                    Mag mag = gun == null && grenade == null ? registry.getMag(args[1]) : null;
+                    if (gun == null && grenade == null && mag == null) {
+                        return error(sender, "Unknown gun/grenade/mag: " + args[1]);
+                    }
                     boolean targetingOther = args.length >= 3;
                     if (targetingOther && !sender.hasPermission("guns.admin")) {
                         return error(sender, "You can only give guns to yourself.");
@@ -64,18 +69,23 @@ public final class GunsPlugin extends JavaPlugin {
                     Player target = targetingOther ? Bukkit.getPlayerExact(args[2])
                         : (sender instanceof Player p ? p : null);
                     if (target == null) return error(sender, "Player not found.");
-                    target.getInventory().addItem(gun != null ? registry.buildItem(gun) : registry.buildGrenadeItem(grenade));
+                    target.getInventory().addItem(gun != null ? registry.buildItem(gun)
+                        : grenade != null ? registry.buildGrenadeItem(grenade)
+                        : registry.buildMagItem(mag));
                     sender.sendMessage(Component.text("Gave " + args[1].toLowerCase() + " to " + target.getName(), NamedTextColor.GOLD));
                     return true;
                 }
                 case "create" -> {
                     if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
                     if (args.length < 2) return usage(sender);
-                    boolean grenade = args.length >= 3 && args[2].equalsIgnoreCase("grenade");
-                    if (!registry.create(args[1], grenade)) {
+                    String type = args.length >= 3 ? args[2].toLowerCase() : "gun";
+                    if (!type.equals("gun") && !type.equals("grenade") && !type.equals("mag")) {
+                        return error(sender, "Unknown type '" + args[2] + "' - use gun, grenade or mag.");
+                    }
+                    if (!registry.create(args[1], type)) {
                         return error(sender, "'" + args[1] + "' already exists.");
                     }
-                    sender.sendMessage(Component.text("Created " + (grenade ? "grenade" : "gun") + " '"
+                    sender.sendMessage(Component.text("Created " + type + " '"
                         + args[1].toLowerCase() + "' with default stats. Tune it with /guns edit "
                         + args[1].toLowerCase() + " <stat> <value> and get it with /guns give "
                         + args[1].toLowerCase(), NamedTextColor.GOLD));
@@ -94,7 +104,8 @@ public final class GunsPlugin extends JavaPlugin {
                 case "reload" -> {
                     if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
                     registry.load();
-                    sender.sendMessage(Component.text("guns.yml reloaded - " + registry.ids().size() + " gun(s).", NamedTextColor.GOLD));
+                    sender.sendMessage(Component.text("guns.yml reloaded - " + registry.ids().size()
+                        + " gun(s), " + registry.magIds().size() + " mag(s).", NamedTextColor.GOLD));
                     return true;
                 }
                 default -> { return usage(sender); }
@@ -110,15 +121,18 @@ public final class GunsPlugin extends JavaPlugin {
         return switch (args.length) {
             case 1 -> filter(Stream.of("list", "give", "create", "edit", "reload"), args[0]);
             case 2 -> args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")
-                ? filter(Stream.concat(registry.ids().stream(), registry.grenadeIds().stream()), args[1])
+                ? filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())
+                    .flatMap(java.util.Collection::stream), args[1])
                 : List.of();
             case 3 -> {
                 if (args[0].equalsIgnoreCase("edit")) {
                     yield registry.getGrenade(args[1]) != null
                         ? filter(GunRegistry.GRENADE_EDITABLE.stream(), args[2])
-                        : filter(GunRegistry.GUN_EDITABLE.stream(), args[2]);
+                        : registry.getMag(args[1]) != null
+                            ? filter(GunRegistry.MAG_EDITABLE.stream(), args[2])
+                            : filter(GunRegistry.GUN_EDITABLE.stream(), args[2]);
                 }
-                if (args[0].equalsIgnoreCase("create")) yield filter(Stream.of("gun", "grenade"), args[2]);
+                if (args[0].equalsIgnoreCase("create")) yield filter(Stream.of("gun", "grenade", "mag"), args[2]);
                 yield List.of();
             }
             default -> List.of();
@@ -131,10 +145,11 @@ public final class GunsPlugin extends JavaPlugin {
 
     private boolean usage(CommandSender sender) {
         sender.sendMessage(Component.text(
-            "/guns list | give <id> [player] | create <id> [gun|grenade] | edit <id> <stat> <value> | reload",
+            "/guns list | give <id> [player] | create <id> [gun|grenade|mag] | edit <id> <stat> <value> | reload",
             NamedTextColor.GOLD));
         sender.sendMessage(Component.text("Gun stats: " + String.join(", ", GunRegistry.GUN_EDITABLE), NamedTextColor.GRAY));
         sender.sendMessage(Component.text("Grenade stats: " + String.join(", ", GunRegistry.GRENADE_EDITABLE), NamedTextColor.GRAY));
+        sender.sendMessage(Component.text("Mag stats: " + String.join(", ", GunRegistry.MAG_EDITABLE), NamedTextColor.GRAY));
         return true;
     }
 

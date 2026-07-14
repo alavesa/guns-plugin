@@ -1,5 +1,5 @@
 name: Guns
-version: '0.3.1'
+version: '0.4.0'
 main: fi.alavesa.guns.GunsPlugin
 api-version: '1.21'
 author: Piia Alavesa
@@ -10,7 +10,7 @@ commands:
     usage: |
       /guns list
       /guns give <id> [player]
-      /guns create <id>
+      /guns create <id> [gun|grenade|mag]
       /guns edit <id> <stat> <value>
       /guns reload
 permissions:

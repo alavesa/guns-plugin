@@ -2,6 +2,7 @@ package fi.alavesa.guns;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Color;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
@@ -31,8 +32,10 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Right-click with a gun = one shot (instant raytrace, no projectile). The gun item is a
  * charged crossbow purely for the AIMING POSE - all vanilla crossbow firing is cancelled.
- * F (swap-hands) reloads. Bullets can ricochet off blocks (gun stat), hits from behind get
- * the backstab multiplier, and hits can apply bleed or any potion effect.
+ * F (swap-hands) reloads; guns with a mag stat consume one matching magazine item from the
+ * inventory. Bullets can ricochet off blocks (gun stat), hits from behind get the backstab
+ * multiplier, hits can apply bleed or any potion effect, and shot players are told where
+ * they were hit (head/chest/stomach/arm/leg/foot, with head/leg damage scaling).
  */
 public final class ShootListener implements Listener {
 
@@ -84,6 +87,10 @@ public final class ShootListener implements Listener {
             player.sendActionBar(Component.text("Magazine full", NamedTextColor.GRAY));
             return;
         }
+        if (gun.requiresMag() && findMagSlot(player, gun.magId()) == -1) {
+            noMagazine(player);
+            return;
+        }
         reloading.add(player.getUniqueId());
         player.sendActionBar(Component.text("Reloading...", NamedTextColor.YELLOW));
         player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_middle", 1f, 1f);
@@ -93,11 +100,40 @@ public final class ShootListener implements Listener {
             ItemStack now = player.getInventory().getItemInMainHand();
             Gun held = registry.gunOf(now);
             if (held == null || !held.id().equals(gun.id())) return; // switched items mid-reload
-            registry.setAmmo(now, held.magazine());
+            int rounds = held.magazine();
+            if (held.requiresMag()) {
+                // Re-find the mag: it may have been dropped/moved during the reload timer.
+                int slot = findMagSlot(player, held.magId());
+                if (slot == -1) {
+                    noMagazine(player);
+                    return;
+                }
+                ItemStack magItem = player.getInventory().getItem(slot);
+                rounds = Math.min(registry.magCapacityOf(magItem), held.magazine());
+                if (magItem.getAmount() <= 1) player.getInventory().setItem(slot, null);
+                else magItem.setAmount(magItem.getAmount() - 1);
+            }
+            registry.setAmmo(now, rounds);
             player.getInventory().setItemInMainHand(now);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
-            ammoBar.update(player, held, held.magazine());
+            ammoBar.update(player, held, rounds);
         }, gun.reloadTicks());
+    }
+
+    /** First inventory slot holding a mag of this type, or -1. */
+    private int findMagSlot(Player player, String magId) {
+        var inv = player.getInventory();
+        for (int i = 0; i < inv.getSize(); i++) {
+            if (magId.equals(registry.magIdOf(inv.getItem(i)))) return i;
+        }
+        return -1;
+    }
+
+    /** Reload refused: dry click, nothing to feed the gun with. */
+    private void noMagazine(Player player) {
+        player.sendActionBar(Component.text("No magazine.", NamedTextColor.GRAY)
+            .decorate(TextDecoration.ITALIC));
+        player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
     }
 
     private void shoot(Player player, Gun gun, ItemStack item) {
@@ -189,13 +225,49 @@ public final class ShootListener implements Listener {
         boolean backstab = gun.backstab() > 1.0
             && target.getLocation().getDirection().normalize().dot(shotDir.clone().normalize()) > 0.5;
         double damage = backstab ? gun.damage() * gun.backstab() : gun.damage();
+
+        // Hit location (players only): tell the victim where the round landed, and
+        // scale damage - headshots hurt more, leg/foot hits are grazes.
+        String part = target instanceof Player victim ? hitLocation(victim, end) : null;
+        if (part != null) {
+            damage *= switch (part) {
+                case "head" -> 1.5;
+                case "leg", "foot" -> 0.75;
+                default -> 1.0;
+            };
+        }
+
         target.damage(damage, shooter);
         target.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);
         if (backstab) {
             shooter.sendActionBar(Component.text("Backstab!", NamedTextColor.DARK_RED));
             shooter.getWorld().playSound(end, "minecraft:entity.player.attack.crit", 1f, 0.8f);
         }
+        if (part != null) {
+            ((Player) target).sendActionBar(Component.text("You were shot in the " + part + ".",
+                NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
+            if (part.equals("head") && !backstab) { // backstab already owns the shooter's actionbar
+                shooter.sendActionBar(Component.text("Headshot.", NamedTextColor.GRAY)
+                    .decorate(TextDecoration.ITALIC));
+            }
+        }
         applyEffect(shooter, gun, target);
+    }
+
+    /** Which body part the shot at `end` (the ray's hit position) struck, judged by height
+     *  up the victim's hitbox: head = top 0.35 blocks, then chest/stomach/legs/feet bands.
+     *  Torso-height hits far off the center axis count as arms. */
+    private String hitLocation(Player victim, Location end) {
+        double height = victim.getHeight();
+        double relY = end.getY() - victim.getLocation().getY();
+        if (relY >= height - 0.35) return "head";
+        double f = Math.max(0, relY) / Math.max(0.1, height); // fraction up the hitbox
+        if (f < 0.15) return "foot";
+        if (f < 0.42) return "leg";
+        double dx = end.getX() - victim.getLocation().getX();
+        double dz = end.getZ() - victim.getLocation().getZ();
+        if (Math.hypot(dx, dz) > victim.getWidth() * 0.35) return "arm";
+        return f < 0.62 ? "stomach" : "chest";
     }
 
     private void applyEffect(Player shooter, Gun gun, LivingEntity target) {

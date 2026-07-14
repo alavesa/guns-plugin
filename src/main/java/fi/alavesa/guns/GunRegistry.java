@@ -22,22 +22,27 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Loads, saves and edits guns.yml (guns AND grenades), and builds the actual items. */
+/** Loads, saves and edits guns.yml (guns, grenades AND mags), and builds the actual items. */
 public final class GunRegistry {
 
     public static final Set<String> GUN_EDITABLE = Set.of(
         "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
-        "sound", "soundpitch", "backstab", "effect", "effectticks", "effectlevel", "ricochet");
+        "sound", "soundpitch", "backstab", "effect", "effectticks", "effectlevel", "ricochet", "mag");
 
     public static final Set<String> GRENADE_EDITABLE = Set.of(
         "name", "model", "power", "fuseticks", "velocity", "breakblocks");
+
+    public static final Set<String> MAG_EDITABLE = Set.of("name", "model", "capacity");
 
     private final Plugin plugin;
     private final NamespacedKey idKey;
     private final NamespacedKey grenadeKey;
     private final NamespacedKey ammoKey;
+    private final NamespacedKey magKey;
+    private final NamespacedKey magCapacityKey;
     private final Map<String, Gun> guns = new LinkedHashMap<>();
     private final Map<String, Grenade> grenades = new LinkedHashMap<>();
+    private final Map<String, Mag> mags = new LinkedHashMap<>();
     private File file;
     private YamlConfiguration yaml;
 
@@ -46,6 +51,8 @@ public final class GunRegistry {
         this.idKey = new NamespacedKey(plugin, "id");
         this.grenadeKey = new NamespacedKey(plugin, "grenade");
         this.ammoKey = new NamespacedKey(plugin, "ammo");
+        this.magKey = new NamespacedKey(plugin, "mag");
+        this.magCapacityKey = new NamespacedKey(plugin, "mag_capacity");
     }
 
     public NamespacedKey grenadeKey() { return grenadeKey; }
@@ -56,11 +63,37 @@ public final class GunRegistry {
         yaml = YamlConfiguration.loadConfiguration(file);
         guns.clear();
         grenades.clear();
+        mags.clear();
+        // Mags load first so guns can validate their mag reference below.
+        ConfigurationSection mroot = yaml.getConfigurationSection("mags");
+        if (mroot != null) {
+            for (String id : mroot.getKeys(false)) {
+                ConfigurationSection s = mroot.getConfigurationSection(id);
+                if (s == null) continue;
+                mags.put(id.toLowerCase(), new Mag(
+                    id.toLowerCase(),
+                    s.getString("name", id),
+                    s.getString("model", "mag_" + id),
+                    (int) clamp(id, "capacity", s.getInt("capacity", 10), 1, 1000)
+                ));
+            }
+        }
         ConfigurationSection root = yaml.getConfigurationSection("guns");
         if (root != null) {
             for (String id : root.getKeys(false)) {
                 ConfigurationSection s = root.getConfigurationSection(id);
                 if (s == null) continue;
+                // "none"/missing mag = old loose-rounds reload; an unknown mag id would make
+                // the gun impossible to reload (the item can't exist), so warn and go loose.
+                String magRef = s.getString("mag", "none");
+                String magId = magRef == null || magRef.isBlank() || magRef.equalsIgnoreCase("none")
+                    ? "" : magRef.toLowerCase();
+                if (!magId.isEmpty() && !mags.containsKey(magId)) {
+                    plugin.getLogger().warning("Gun '" + id + "' wants unknown mag '" + magRef
+                        + "' - reloading loose rounds until that mag exists (/guns create "
+                        + magRef + " mag).");
+                    magId = "";
+                }
                 // Stats are clamped to sane ranges: a runaway value (range 99999...) makes
                 // every shot scan a huge area and can stall the whole server.
                 guns.put(id.toLowerCase(), new Gun(
@@ -78,7 +111,8 @@ public final class GunRegistry {
                     s.getString("effect", "none"),
                     (int) clamp(id, "effect-ticks", s.getInt("effect-ticks", 60), 0, 1200),
                     (int) clamp(id, "effect-level", s.getInt("effect-level", 1), 1, 10),
-                    (int) clamp(id, "ricochet", s.getInt("ricochet", 0), 0, 8)
+                    (int) clamp(id, "ricochet", s.getInt("ricochet", 0), 0, 8),
+                    magId
                 ));
             }
         }
@@ -102,20 +136,26 @@ public final class GunRegistry {
 
     public Gun get(String id) { return id == null ? null : guns.get(id.toLowerCase()); }
     public Grenade getGrenade(String id) { return id == null ? null : grenades.get(id.toLowerCase()); }
+    public Mag getMag(String id) { return id == null ? null : mags.get(id.toLowerCase()); }
     public Set<String> ids() { return guns.keySet(); }
     public Set<String> grenadeIds() { return grenades.keySet(); }
+    public Set<String> magIds() { return mags.keySet(); }
 
-    /** Create a gun or grenade with defaults. Returns false if the id exists in either list. */
-    public boolean create(String id, boolean grenade) throws IOException {
+    /** Create a gun, grenade or mag with defaults. Returns false if the id exists in any list. */
+    public boolean create(String id, String type) throws IOException {
         String key = id.toLowerCase();
-        if (guns.containsKey(key) || grenades.containsKey(key)) return false;
-        if (grenade) {
+        if (guns.containsKey(key) || grenades.containsKey(key) || mags.containsKey(key)) return false;
+        if (type.equals("grenade")) {
             yaml.set("grenades." + key + ".name", "&f" + id);
             yaml.set("grenades." + key + ".model", "grenade_" + key);
             yaml.set("grenades." + key + ".power", 2.5);
             yaml.set("grenades." + key + ".fuse-ticks", 25);
             yaml.set("grenades." + key + ".velocity", 1.5);
             yaml.set("grenades." + key + ".break-blocks", false);
+        } else if (type.equals("mag")) {
+            yaml.set("mags." + key + ".name", "&f" + id);
+            yaml.set("mags." + key + ".model", "mag_" + key);
+            yaml.set("mags." + key + ".capacity", 10);
         } else {
             yaml.set("guns." + key + ".name", "&f" + id);
             yaml.set("guns." + key + ".model", "gun_" + key);
@@ -131,13 +171,14 @@ public final class GunRegistry {
             yaml.set("guns." + key + ".effect-ticks", 60);
             yaml.set("guns." + key + ".effect-level", 1);
             yaml.set("guns." + key + ".ricochet", 0);
+            yaml.set("guns." + key + ".mag", "none");
         }
         yaml.save(file);
         load();
         return true;
     }
 
-    /** Edit one stat of a gun or grenade. Returns an error message, or null on success. */
+    /** Edit one stat of a gun, grenade or mag. Returns an error message, or null on success. */
     public String edit(String id, String stat, String value) throws IOException {
         String key = id.toLowerCase();
         String statKey = stat.toLowerCase();
@@ -147,6 +188,15 @@ public final class GunRegistry {
             }
             String path = "guns." + key + ".";
             switch (statKey) {
+                case "mag" -> {
+                    String magId = value.toLowerCase();
+                    if (!magId.equals("none") && !mags.containsKey(magId)) {
+                        return "Unknown mag '" + value + "'. Mags: "
+                            + (mags.isEmpty() ? "(none yet - /guns create <id> mag)" : String.join(", ", mags.keySet()))
+                            + ", or 'none'.";
+                    }
+                    yaml.set(path + "mag", magId);
+                }
                 case "name", "model", "sound", "effect" -> yaml.set(path + yamlKey(statKey), value);
                 case "magazine", "reloadticks", "effectticks", "effectlevel", "ricochet" -> {
                     Integer n = parseInt(value);
@@ -178,8 +228,21 @@ public final class GunRegistry {
                     yaml.set(path + yamlKey(statKey), d);
                 }
             }
+        } else if (mags.containsKey(key)) {
+            if (!MAG_EDITABLE.contains(statKey)) {
+                return "Unknown mag stat '" + stat + "'. Stats: " + String.join(", ", MAG_EDITABLE);
+            }
+            String path = "mags." + key + ".";
+            switch (statKey) {
+                case "name", "model" -> yaml.set(path + statKey, value);
+                default -> { // capacity
+                    Integer n = parseInt(value);
+                    if (n == null) return "Not a whole number: " + value;
+                    yaml.set(path + "capacity", n);
+                }
+            }
         } else {
-            return "Unknown gun/grenade: " + id;
+            return "Unknown gun/grenade/mag: " + id;
         }
         yaml.save(file);
         load();
@@ -242,6 +305,19 @@ public final class GunRegistry {
         return item;
     }
 
+    /** Mag item: a prismarine shard reskinned by the resource pack. Identity and capacity
+     *  ride the item (PDC), so an already-given mag keeps working even if its config entry
+     *  is later removed - though capacity edits DO apply live while the entry exists. */
+    public ItemStack buildMagItem(Mag mag) {
+        ItemStack item = new ItemStack(Material.PRISMARINE_SHARD);
+        ItemMeta meta = item.getItemMeta();
+        applyCosmetics(meta, mag.name(), mag.model());
+        meta.getPersistentDataContainer().set(magKey, PersistentDataType.STRING, mag.id());
+        meta.getPersistentDataContainer().set(magCapacityKey, PersistentDataType.INTEGER, mag.capacity());
+        item.setItemMeta(meta);
+        return item;
+    }
+
     private void applyCosmetics(ItemMeta meta, String name, String model) {
         Component display = LegacyComponentSerializer.legacyAmpersand().deserialize(name)
             .decoration(TextDecoration.ITALIC, false);
@@ -263,6 +339,22 @@ public final class GunRegistry {
         if (item == null || item.getType() != Material.SNOWBALL || !item.hasItemMeta()) return null;
         String id = item.getItemMeta().getPersistentDataContainer().get(grenadeKey, PersistentDataType.STRING);
         return getGrenade(id);
+    }
+
+    /** The mag id stamped on this item, or null if it is not a mag. */
+    public String magIdOf(ItemStack item) {
+        if (item == null || item.getType() != Material.PRISMARINE_SHARD || !item.hasItemMeta()) return null;
+        return item.getItemMeta().getPersistentDataContainer().get(magKey, PersistentDataType.STRING);
+    }
+
+    /** Rounds this mag item loads: the live registry value if the mag still exists
+     *  (so /guns edit applies to mags already in pockets), else what's stamped on the item. */
+    public int magCapacityOf(ItemStack item) {
+        Mag mag = getMag(magIdOf(item));
+        if (mag != null) return mag.capacity();
+        Integer stamped = item.getItemMeta().getPersistentDataContainer()
+            .get(magCapacityKey, PersistentDataType.INTEGER);
+        return stamped == null ? 0 : stamped;
     }
 
     public int ammoOf(ItemStack item) {
