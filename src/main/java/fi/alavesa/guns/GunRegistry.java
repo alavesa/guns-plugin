@@ -34,6 +34,18 @@ public final class GunRegistry {
 
     public static final Set<String> MAG_EDITABLE = Set.of("name", "model", "capacity");
 
+    /** The premade mag family. Also written into guns.yml files that predate the
+     *  mags feature, so existing servers pick them up without touching the config. */
+    private record MagDefault(String id, String name, int capacity) {}
+    private static final List<MagDefault> DEFAULT_MAGS = List.of(
+        new MagDefault("mag_pistol", "&7Pistol Magazine", 12),
+        new MagDefault("mag_pistol_ext", "&7Extended Pistol Magazine", 20),
+        new MagDefault("mag_rifle", "&8Rifle Magazine", 5),
+        new MagDefault("mag_rifle_drum", "&8Rifle Drum", 10),
+        new MagDefault("mag_smg", "&2SMG Magazine", 24),
+        new MagDefault("mag_sniper", "&8Sniper Magazine", 3),
+        new MagDefault("shells_shotgun", "&cShotgun Shells", 6));
+
     private final Plugin plugin;
     private final NamespacedKey idKey;
     private final NamespacedKey grenadeKey;
@@ -61,6 +73,7 @@ public final class GunRegistry {
         file = new File(plugin.getDataFolder(), "guns.yml");
         if (!file.exists()) plugin.saveResource("guns.yml", false);
         yaml = YamlConfiguration.loadConfiguration(file);
+        migrate();
         guns.clear();
         grenades.clear();
         mags.clear();
@@ -132,6 +145,55 @@ public final class GunRegistry {
                 ));
             }
         }
+    }
+
+    /** One-time upgrade for guns.yml files that predate the mags feature: write the premade
+     *  mag family into the file, and point every gun WITHOUT a mag key at one (by name
+     *  heuristic), writing the assignment back so ops can see and edit it. After a jar
+     *  update every existing gun requires a magazine with no config surgery. A gun
+     *  explicitly set to "mag: none" is respected and stays magless. */
+    private void migrate() {
+        boolean changed = false;
+        if (!yaml.isConfigurationSection("mags")) {
+            for (MagDefault d : DEFAULT_MAGS) {
+                yaml.set("mags." + d.id() + ".name", d.name());
+                yaml.set("mags." + d.id() + ".model", d.id());
+                yaml.set("mags." + d.id() + ".capacity", d.capacity());
+            }
+            plugin.getLogger().info("guns.yml predates magazines - added the "
+                + DEFAULT_MAGS.size() + " premade mag types to it.");
+            changed = true;
+        }
+        ConfigurationSection root = yaml.getConfigurationSection("guns");
+        if (root != null) {
+            for (String id : root.getKeys(false)) {
+                ConfigurationSection s = root.getConfigurationSection(id);
+                if (s == null || s.contains("mag")) continue; // explicit value (incl. "none") wins
+                String mag = heuristicMag(id, s.getString("name", id));
+                yaml.set("guns." + id + ".mag", mag);
+                plugin.getLogger().info("Gun '" + id + "' had no mag entry - it now reloads from '"
+                    + mag + "' (change with /guns edit " + id + " mag <mag-id|none>).");
+                changed = true;
+            }
+        }
+        if (changed) {
+            try {
+                yaml.save(file);
+            } catch (IOException e) {
+                plugin.getLogger().severe("Could not save migrated guns.yml: " + e.getMessage());
+            }
+        }
+    }
+
+    /** Which premade mag suits this gun, judged by its id and display name. */
+    private static String heuristicMag(String id, String name) {
+        String hay = (id + " " + (name == null ? "" : name)).toLowerCase();
+        if (hay.contains("pistol")) return "mag_pistol";
+        if (hay.contains("rifle")) return "mag_rifle";
+        if (hay.contains("smg")) return "mag_smg";
+        if (hay.contains("shotgun")) return "shells_shotgun";
+        if (hay.contains("sniper")) return "mag_sniper";
+        return "mag_pistol";
     }
 
     public Gun get(String id) { return id == null ? null : guns.get(id.toLowerCase()); }
@@ -305,13 +367,17 @@ public final class GunRegistry {
         return item;
     }
 
-    /** Mag item: a prismarine shard reskinned by the resource pack. Identity and capacity
-     *  ride the item (PDC), so an already-given mag keeps working even if its config entry
-     *  is later removed - though capacity edits DO apply live while the entry exists. */
+    /** Mag item: a prismarine shard reskinned by the resource pack, stacking to 16.
+     *  Identity and capacity ride the item (PDC), so an already-given mag keeps working
+     *  even if its config entry is later removed - though capacity edits DO apply live
+     *  while the entry exists. Keep the PDC to id + capacity ONLY: both are identical
+     *  for every mag of a type, so identical mags keep stacking with each other
+     *  (per-item data like UUIDs or timestamps would break that). */
     public ItemStack buildMagItem(Mag mag) {
         ItemStack item = new ItemStack(Material.PRISMARINE_SHARD);
         ItemMeta meta = item.getItemMeta();
         applyCosmetics(meta, mag.name(), mag.model());
+        meta.setMaxStackSize(16);
         meta.getPersistentDataContainer().set(magKey, PersistentDataType.STRING, mag.id());
         meta.getPersistentDataContainer().set(magCapacityKey, PersistentDataType.INTEGER, mag.capacity());
         item.setItemMeta(meta);

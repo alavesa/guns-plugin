@@ -11,10 +11,45 @@
         }
       },
       {
+        "when": "mag_pistol_ext",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/mag_pistol_ext"
+        }
+      },
+      {
         "when": "mag_rifle",
         "model": {
           "type": "minecraft:model",
           "model": "guns:item/mag_rifle"
+        }
+      },
+      {
+        "when": "mag_rifle_drum",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/mag_rifle_drum"
+        }
+      },
+      {
+        "when": "mag_smg",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/mag_smg"
+        }
+      },
+      {
+        "when": "mag_sniper",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/mag_sniper"
+        }
+      },
+      {
+        "when": "shells_shotgun",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/shells_shotgun"
         }
       }
     ],

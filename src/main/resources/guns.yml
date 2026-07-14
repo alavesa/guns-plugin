@@ -16,7 +16,9 @@
 #   effect-level bleed: damage per second | potions: effect strength (1 = level I)
 #   ricochet     how many times a bullet bounces off blocks (0 = none)
 #   mag          mags: id this gun reloads from - reloading consumes one such mag item
-#                from the inventory ("none" or omitted = old loose-rounds reload)
+#                from the inventory. An EXPLICIT "mag: none" keeps the old loose-rounds
+#                reload; a gun with NO mag key at all gets one auto-assigned (and written
+#                here) on load, matched by its id/name (pistol/rifle/smg/shotgun/sniper).
 #
 # Grenade stats:
 #   name / model as above (model on a snowball item)
@@ -77,7 +79,7 @@ guns:
     effect-ticks: 80
     effect-level: 1
     ricochet: 0
-    mag: none
+    mag: mag_pistol
 
 grenades:
   frag:
@@ -93,7 +95,27 @@ mags:
     name: "&7Pistol Magazine"
     model: mag_pistol
     capacity: 12
+  mag_pistol_ext:
+    name: "&7Extended Pistol Magazine"
+    model: mag_pistol_ext
+    capacity: 20
   mag_rifle:
     name: "&8Rifle Magazine"
     model: mag_rifle
     capacity: 5
+  mag_rifle_drum:
+    name: "&8Rifle Drum"
+    model: mag_rifle_drum
+    capacity: 10
+  mag_smg:
+    name: "&2SMG Magazine"
+    model: mag_smg
+    capacity: 24
+  mag_sniper:
+    name: "&8Sniper Magazine"
+    model: mag_sniper
+    capacity: 3
+  shells_shotgun:
+    name: "&cShotgun Shells"
+    model: shells_shotgun
+    capacity: 6
