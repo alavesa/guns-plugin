@@ -205,6 +205,30 @@ public final class ShootListener implements Listener {
         shoot(player, gun, held);
     }
 
+    /** The knife-server trick: a client-only empty hand for one tick makes
+     *  the re-equip dip play OVER the punch animation - the gun visibly
+     *  lowers for a fraction of a second instead of swinging. */
+    private void dipHand(Player player) {
+        if (!plugin.getConfig().getBoolean("fire-dip", true)) return;
+        player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.HAND,
+            new ItemStack(org.bukkit.Material.AIR));
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) {
+                player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.HAND,
+                    player.getInventory().getItemInMainHand());
+            }
+        });
+    }
+
+    /** Nobody else sees the punch either: gun-in-hand arm swings are
+     *  cancelled server-side (Paper's arm swing event). */
+    @org.bukkit.event.EventHandler(ignoreCancelled = true)
+    public void onSwing(io.papermc.paper.event.player.PlayerArmSwingEvent event) {
+        if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null) {
+            event.setCancelled(true);
+        }
+    }
+
     /** The charged arrow exists only for the aiming pose - if anything
      *  slips past the interact cancel, the discharge itself is refused. */
     @org.bukkit.event.EventHandler(ignoreCancelled = true)
@@ -215,12 +239,6 @@ public final class ShootListener implements Listener {
     }
 
     private void shoot(Player player, Gun gun, ItemStack item) {
-        if (plugin.getConfig().getBoolean("recoil-kick", true)) {
-            org.bukkit.util.Vector kick = player.getLocation().getDirection()
-                .setY(0).normalize().multiply(-0.06);
-            kick.setY(0.02);
-            player.setVelocity(player.getVelocity().add(kick));
-        }
         if (reloading.contains(player.getUniqueId())) return;
 
         long now = System.currentTimeMillis();
@@ -236,6 +254,13 @@ public final class ShootListener implements Listener {
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
+        if (plugin.getConfig().getBoolean("recoil-kick", true)) {
+            org.bukkit.util.Vector kick = player.getLocation().getDirection()
+                .setY(0).normalize().multiply(-0.06);
+            kick.setY(0.02);
+            player.setVelocity(player.getVelocity().add(kick));
+        }
+        dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
         long shotStart = System.nanoTime();
