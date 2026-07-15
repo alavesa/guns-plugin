@@ -67,11 +67,12 @@ public final class ShootListener implements Listener {
 
     @org.bukkit.event.EventHandler
     public void onAim(PlayerInteractEvent event) {
-        if (event.getAction() != Action.LEFT_CLICK_AIR && event.getAction() != Action.LEFT_CLICK_BLOCK) return;
+        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
         if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
         ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
         Gun aimedGun = registry.gunOf(held);
         if (aimedGun == null) return;
+        repairPose(held);
         if (aimedGun.isSpyglass()) return; // vanilla scoping IS the ADS - with our overlay
         event.setCancelled(true);
         Player player = event.getPlayer();
@@ -94,6 +95,22 @@ public final class ShootListener implements Listener {
         if (aiming.remove(event.getPlayer().getUniqueId())) {
             event.getPlayer().removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
         }
+        // self-heal: any gun that lost its pose-arrow (a discharge that
+        // slipped through before the net existed) gets it back on pickup
+        ItemStack next = event.getPlayer().getInventory().getItem(event.getNewSlot());
+        repairPose(next);
+    }
+
+    /** Guns are crossbows whose charged arrow exists only for the aiming
+     *  pose and the charged-state model - if it ever discharged, the model
+     *  and pose broke on that item. Recharge silently. */
+    private void repairPose(ItemStack item) {
+        if (item == null || item.getType() != org.bukkit.Material.CROSSBOW) return;
+        if (registry.gunOf(item) == null) return;
+        if (!(item.getItemMeta() instanceof org.bukkit.inventory.meta.CrossbowMeta meta)) return;
+        if (meta.hasChargedProjectiles()) return;
+        meta.addChargedProjectile(new ItemStack(org.bukkit.Material.ARROW));
+        item.setItemMeta(meta);
     }
 
     /** Left-click swings at nothing are the trigger now. */
@@ -186,6 +203,15 @@ public final class ShootListener implements Listener {
         if (gun == null) return;
         event.setCancelled(true);
         shoot(player, gun, held);
+    }
+
+    /** The charged arrow exists only for the aiming pose - if anything
+     *  slips past the interact cancel, the discharge itself is refused. */
+    @org.bukkit.event.EventHandler(ignoreCancelled = true)
+    public void onDischarge(org.bukkit.event.entity.EntityShootBowEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        if (registry.gunOf(event.getBow()) == null) return;
+        event.setCancelled(true);
     }
 
     private void shoot(Player player, Gun gun, ItemStack item) {

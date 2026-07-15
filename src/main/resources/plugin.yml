@@ -1,5 +1,5 @@
 name: Guns
-version: '0.8.0'
+version: '0.8.1'
 main: fi.alavesa.guns.GunsPlugin
 softdepend: [Labra]
 api-version: '1.21'
