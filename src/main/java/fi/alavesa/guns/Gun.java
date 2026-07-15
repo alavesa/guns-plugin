@@ -18,8 +18,15 @@ public record Gun(
     int effectTicks,   // how long the effect lasts
     int effectLevel,   // effect strength (bleed: damage per second; potions: amplifier+1)
     int ricochet,      // how many times a bullet bounces off blocks (0 = none)
-    String magId       // mag id this gun reloads from ("" = old loose-rounds reload)
+    String magId,      // mag id this gun reloads from ("" = old loose-rounds reload)
+    String base        // "crossbow" (default) or "spyglass" - snipers scope for real
 ) {
+    /** Spyglass guns: right-click scopes with the vanilla spyglass zoom and
+     *  the pack's custom sight overlay instead of the slowness ADS. */
+    public boolean isSpyglass() {
+        return "spyglass".equalsIgnoreCase(base);
+    }
+
     /** True if reloading needs (and consumes) a magazine item from the inventory. */
     public boolean requiresMag() {
         return magId != null && !magId.isEmpty();

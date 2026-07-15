@@ -125,9 +125,35 @@ public final class GunRegistry {
                     (int) clamp(id, "effect-ticks", s.getInt("effect-ticks", 60), 0, 1200),
                     (int) clamp(id, "effect-level", s.getInt("effect-level", 1), 1, 10),
                     (int) clamp(id, "ricochet", s.getInt("ricochet", 0), 0, 8),
-                    magId
+                    magId,
+                    s.getString("base", "crossbow")
                 ));
             }
+        }
+        // v0.8.0: every armory gets the marksman option once
+        if (yaml.getConfigurationSection("guns") != null
+            && yaml.getConfigurationSection("guns.sniper") == null
+            && !yaml.getBoolean("sniper-offered", false)) {
+            yaml.set("guns.sniper.name", "&fFoundation Marksman Rifle");
+            yaml.set("guns.sniper.model", "gun_sniper");
+            yaml.set("guns.sniper.base", "spyglass");
+            yaml.set("guns.sniper.damage", 16.0);
+            yaml.set("guns.sniper.fire-rate", 0.6);
+            yaml.set("guns.sniper.range", 120);
+            yaml.set("guns.sniper.magazine", 3);
+            yaml.set("guns.sniper.reload-ticks", 50);
+            yaml.set("guns.sniper.sound", "minecraft:entity.blaze.hurt");
+            yaml.set("guns.sniper.sound-pitch", 0.5);
+            yaml.set("guns.sniper.mag", "mag_sniper");
+            yaml.set("sniper-offered", true);
+            try {
+                yaml.save(file);
+            } catch (java.io.IOException e) {
+                plugin.getLogger().severe("Could not save guns.yml: " + e.getMessage());
+            }
+            plugin.getLogger().info("Added the default spyglass sniper to guns.yml (delete it or set sniper-offered if unwanted).");
+            load();
+            return;
         }
         ConfigurationSection groot = yaml.getConfigurationSection("grenades");
         if (groot != null) {
@@ -371,6 +397,17 @@ public final class GunRegistry {
     /** Gun item: a crossbow pre-loaded with an arrow -> held in the crossbow AIMING POSE.
      *  Vanilla firing is cancelled by ShootListener; the charged arrow is only for the pose. */
     public ItemStack buildItem(Gun gun) {
+        if (gun.isSpyglass()) {
+            // a sniper IS a spyglass: right-click scopes with vanilla zoom
+            // and the pack's custom sight overlay
+            ItemStack item = new ItemStack(Material.SPYGLASS);
+            var meta = item.getItemMeta();
+            applyCosmetics(meta, gun.name(), gun.model());
+            meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, gun.id());
+            meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
+            item.setItemMeta(meta);
+            return item;
+        }
         ItemStack item = new ItemStack(Material.CROSSBOW);
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
         meta.addChargedProjectile(new ItemStack(Material.ARROW));
@@ -420,7 +457,8 @@ public final class GunRegistry {
 
     /** The gun this item is, or null. */
     public Gun gunOf(ItemStack item) {
-        if (item == null || item.getType() != Material.CROSSBOW || !item.hasItemMeta()) return null;
+        if (item == null || !item.hasItemMeta()
+            || (item.getType() != Material.CROSSBOW && item.getType() != Material.SPYGLASS)) return null;
         String id = item.getItemMeta().getPersistentDataContainer().get(idKey, PersistentDataType.STRING);
         return get(id);
     }

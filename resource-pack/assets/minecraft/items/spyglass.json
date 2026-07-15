@@ -1,0 +1,19 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "cases": [
+      {
+        "when": "gun_sniper",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/gun_sniper"
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "minecraft:item/spyglass"
+    }
+  }
+}

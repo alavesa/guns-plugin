@@ -70,7 +70,9 @@ public final class ShootListener implements Listener {
         if (event.getAction() != Action.LEFT_CLICK_AIR && event.getAction() != Action.LEFT_CLICK_BLOCK) return;
         if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
         ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
-        if (registry.gunOf(held) == null) return;
+        Gun aimedGun = registry.gunOf(held);
+        if (aimedGun == null) return;
+        if (aimedGun.isSpyglass()) return; // vanilla scoping IS the ADS - with our overlay
         event.setCancelled(true);
         Player player = event.getPlayer();
         if (aiming.remove(player.getUniqueId())) {
