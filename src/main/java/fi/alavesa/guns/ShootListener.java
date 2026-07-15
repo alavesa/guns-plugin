@@ -215,6 +215,12 @@ public final class ShootListener implements Listener {
     }
 
     private void shoot(Player player, Gun gun, ItemStack item) {
+        if (plugin.getConfig().getBoolean("recoil-kick", true)) {
+            org.bukkit.util.Vector kick = player.getLocation().getDirection()
+                .setY(0).normalize().multiply(-0.06);
+            kick.setY(0.02);
+            player.setVelocity(player.getVelocity().add(kick));
+        }
         if (reloading.contains(player.getUniqueId())) return;
 
         long now = System.currentTimeMillis();
