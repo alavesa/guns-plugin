@@ -56,51 +56,131 @@ public final class ShootListener implements Listener {
         this.ammoBar = ammoBar;
     }
 
-    /** Aim-down-sights per player: toggled by right-click, dropped on
-     *  slot change or unequip. Aiming slows the walk and steadies the
-     *  hand (Slowness gives the vanilla FOV zoom for free). */
+    /** Aim-down-sights per player: QualityArmory-style - you aim by SNEAKING
+     *  with a crossbow-gun in hand. Un-sneak, slot change or drop ends it.
+     *  Aiming slows the walk and steadies the hand (Slowness gives the
+     *  vanilla FOV zoom for free) and swaps the item to its `<model>_aim`
+     *  ironsights model. Spyglass guns keep their vanilla scope instead. */
     private final java.util.Set<java.util.UUID> aiming = new java.util.HashSet<>();
+
+    /** The custom_model_data suffix the resource pack dispatches to the ironsights model. */
+    private static final String AIM_SUFFIX = "_aim";
 
     public boolean isAiming(Player player) {
         return aiming.contains(player.getUniqueId());
     }
 
+    /** Crouch = aim (crossbow guns only; the spyglass sniper scopes on right-click). */
     @org.bukkit.event.EventHandler
-    public void onAim(PlayerInteractEvent event) {
-        boolean left = event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK;
-        boolean right = event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK;
-        if (!left && !right) return;
-        if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
-        ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
-        Gun aimedGun = registry.gunOf(held);
-        if (aimedGun == null) return;
-        repairPose(held);
-        if (aimedGun.isSpyglass()) return; // vanilla scoping IS the ADS - with our overlay
-        event.setCancelled(true);
+    public void onSneakAim(org.bukkit.event.player.PlayerToggleSneakEvent event) {
         Player player = event.getPlayer();
-        if (aiming.remove(player.getUniqueId())) {
-            player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
-            Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ - ]",
-                net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY));
-        } else {
-            aiming.add(player.getUniqueId());
-            player.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SLOWNESS, 20 * 3600, 3, true, false));
-            Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ + ]",
-                net.kyori.adventure.text.format.NamedTextColor.GREEN));
+        if (!event.isSneaking()) {
+            stopAiming(player);
+            return;
         }
+        Gun gun = registry.gunOf(player.getInventory().getItemInMainHand());
+        if (gun == null || gun.isSpyglass()) return;
+        startAiming(player);
+    }
+
+    private void startAiming(Player player) {
+        if (!aiming.add(player.getUniqueId())) return;
+        player.addPotionEffect(new org.bukkit.potion.PotionEffect(
+            org.bukkit.potion.PotionEffectType.SLOWNESS, 20 * 3600, 3, true, false));
+        swapHeldModel(player, true);
+        Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ + ]",
+            net.kyori.adventure.text.format.NamedTextColor.GREEN));
         player.playSound(player.getLocation(), org.bukkit.Sound.ITEM_SPYGLASS_USE, 0.5f, 1.4f);
+    }
+
+    private void stopAiming(Player player) {
+        if (!aiming.remove(player.getUniqueId())) return;
+        player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
+        swapHeldModel(player, false);
+        Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ - ]",
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY));
+        player.playSound(player.getLocation(), org.bukkit.Sound.ITEM_SPYGLASS_USE, 0.5f, 1.4f);
+    }
+
+    /** Swap the main-hand gun between `<model>` and `<model>_aim`. */
+    private void swapHeldModel(Player player, boolean aim) {
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (registry.gunOf(held) == null) return;
+        if (applyModelSuffix(held, aim)) player.getInventory().setItemInMainHand(held);
+    }
+
+    /** Rewrites the item's custom_model_data string to the aimed/normal variant.
+     *  Returns true if the item changed (caller must write it back). */
+    private boolean applyModelSuffix(ItemStack item, boolean aim) {
+        var meta = item.getItemMeta();
+        if (meta == null) return false;
+        var cmd = meta.getCustomModelDataComponent();
+        java.util.List<String> strings = cmd.getStrings();
+        if (strings.isEmpty()) return false;
+        String model = strings.get(0);
+        String want = aim
+            ? (model.endsWith(AIM_SUFFIX) ? model : model + AIM_SUFFIX)
+            : (model.endsWith(AIM_SUFFIX) ? model.substring(0, model.length() - AIM_SUFFIX.length()) : model);
+        if (want.equals(model)) return false;
+        cmd.setStrings(java.util.List.of(want));
+        meta.setCustomModelDataComponent(cmd);
+        item.setItemMeta(meta);
+        return true;
+    }
+
+    /** A gun stuck showing its ironsights model while nobody aims it gets normalized. */
+    private void normalizeSlot(Player player, int slot) {
+        ItemStack item = player.getInventory().getItem(slot);
+        if (registry.gunOf(item) == null) return;
+        if (applyModelSuffix(item, false)) player.getInventory().setItem(slot, item);
     }
 
     @org.bukkit.event.EventHandler
     public void onAimDrop(org.bukkit.event.player.PlayerItemHeldEvent event) {
-        if (aiming.remove(event.getPlayer().getUniqueId())) {
-            event.getPlayer().removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
+        Player player = event.getPlayer();
+        // slot change ends the aim; the aimed gun is still in the PREVIOUS
+        // slot at this point, so normalize it there
+        if (aiming.remove(player.getUniqueId())) {
+            player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
         }
+        normalizeSlot(player, event.getPreviousSlot());
+        // belt and suspenders: never show a stuck _aim model on the drawn item
+        normalizeSlot(player, event.getNewSlot());
         // self-heal: any gun that lost its pose-arrow (a discharge that
         // slipped through before the net existed) gets it back on pickup
-        ItemStack next = event.getPlayer().getInventory().getItem(event.getNewSlot());
+        ItemStack next = player.getInventory().getItem(event.getNewSlot());
         repairPose(next);
+        // still crouched? the newly drawn crossbow-gun comes up aimed
+        Gun nextGun = registry.gunOf(next);
+        if (nextGun != null && !nextGun.isSpyglass() && player.isSneaking()
+            && aiming.add(player.getUniqueId())) {
+            player.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                org.bukkit.potion.PotionEffectType.SLOWNESS, 20 * 3600, 3, true, false));
+            ItemStack drawn = player.getInventory().getItem(event.getNewSlot());
+            if (drawn != null && applyModelSuffix(drawn, true)) {
+                player.getInventory().setItem(event.getNewSlot(), drawn);
+            }
+        }
+    }
+
+    /** Dropping the gun ends the aim, and the flying item never keeps the ironsights model. */
+    @org.bukkit.event.EventHandler
+    public void onGunDrop(org.bukkit.event.player.PlayerDropItemEvent event) {
+        ItemStack dropped = event.getItemDrop().getItemStack();
+        if (registry.gunOf(dropped) == null) return;
+        if (applyModelSuffix(dropped, false)) event.getItemDrop().setItemStack(dropped);
+        stopAiming(event.getPlayer());
+    }
+
+    /** Logout while aiming: clear the effect and the ironsights model so
+     *  nothing sticks across the relog. */
+    @org.bukkit.event.EventHandler
+    public void onQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        if (aiming.remove(player.getUniqueId())) {
+            player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
+            swapHeldModel(player, false);
+        }
     }
 
     /** Guns are crossbows whose charged arrow exists only for the aiming
@@ -115,9 +195,10 @@ public final class ShootListener implements Listener {
         item.setItemMeta(meta);
     }
 
-    /** Right click fires (back to the original trigger). Spyglass guns are
-     *  the exception: their right click is the scope, so they fire on left
-     *  (their aim-toggle path is skipped in onAim). */
+    /** Right click fires crossbow guns; their left click is cancelled and does
+     *  nothing (aiming is crouch now). Spyglass guns are the exception: they
+     *  fire on LEFT and their right click must pass through UNCANCELLED -
+     *  that's the vanilla scope. */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onShoot(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
@@ -127,13 +208,16 @@ public final class ShootListener implements Listener {
         ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
-        // crossbow guns fire on RIGHT (left is the aim toggle, cancelled in
-        // onAim); spyglass guns fire on LEFT and their right click must pass
-        // through UNCANCELLED - that's the vanilla scope
-        boolean fires = gun.isSpyglass() ? left : right;
-        if (!fires) return;
+        repairPose(item);
+        if (gun.isSpyglass()) {
+            if (!left) return; // right click scopes - leave it to vanilla
+            event.setCancelled(true);
+            shoot(event.getPlayer(), gun, item);
+            return;
+        }
+        // crossbow gun: no vanilla behavior ever - right fires, left is a dead key
         event.setCancelled(true);
-        shoot(event.getPlayer(), gun, item);
+        if (right) shoot(event.getPlayer(), gun, item);
     }
 
     /** Belt and suspenders: no vanilla arrow may ever leave a gun. */
