@@ -56,10 +56,49 @@ public final class ShootListener implements Listener {
         this.ammoBar = ammoBar;
     }
 
+    /** Aim-down-sights per player: toggled by right-click, dropped on
+     *  slot change or unequip. Aiming slows the walk and steadies the
+     *  hand (Slowness gives the vanilla FOV zoom for free). */
+    private final java.util.Set<java.util.UUID> aiming = new java.util.HashSet<>();
+
+    public boolean isAiming(Player player) {
+        return aiming.contains(player.getUniqueId());
+    }
+
+    @org.bukkit.event.EventHandler
+    public void onAim(PlayerInteractEvent event) {
+        if (event.getAction() != Action.LEFT_CLICK_AIR && event.getAction() != Action.LEFT_CLICK_BLOCK) return;
+        if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
+        ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
+        if (registry.gunOf(held) == null) return;
+        event.setCancelled(true);
+        Player player = event.getPlayer();
+        if (aiming.remove(player.getUniqueId())) {
+            player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
+            Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ - ]",
+                net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY));
+        } else {
+            aiming.add(player.getUniqueId());
+            player.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                org.bukkit.potion.PotionEffectType.SLOWNESS, 20 * 3600, 3, true, false));
+            Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ + ]",
+                net.kyori.adventure.text.format.NamedTextColor.GREEN));
+        }
+        player.playSound(player.getLocation(), org.bukkit.Sound.ITEM_SPYGLASS_USE, 0.5f, 1.4f);
+    }
+
+    @org.bukkit.event.EventHandler
+    public void onAimDrop(org.bukkit.event.player.PlayerItemHeldEvent event) {
+        if (aiming.remove(event.getPlayer().getUniqueId())) {
+            event.getPlayer().removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
+        }
+    }
+
+    /** Left-click swings at nothing are the trigger now. */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onShoot(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
-        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        if (event.getAction() != Action.LEFT_CLICK_AIR && event.getAction() != Action.LEFT_CLICK_BLOCK) return;
         ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
@@ -133,6 +172,18 @@ public final class ShootListener implements Listener {
         Msg.actionbar(player, Component.text("No magazine.", NamedTextColor.GRAY)
             .decorate(TextDecoration.ITALIC));
         player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
+    }
+
+    /** A left click that lands ON a target arrives as a melee attack, not
+     *  an interact - the gun still fires (and never bonks like a stick). */
+    @org.bukkit.event.EventHandler(ignoreCancelled = true)
+    public void onPointBlank(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Player player)) return;
+        ItemStack held = player.getInventory().getItemInMainHand();
+        Gun gun = registry.gunOf(held);
+        if (gun == null) return;
+        event.setCancelled(true);
+        shoot(player, gun, held);
     }
 
     private void shoot(Player player, Gun gun, ItemStack item) {
