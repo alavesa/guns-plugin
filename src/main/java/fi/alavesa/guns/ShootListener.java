@@ -67,7 +67,9 @@ public final class ShootListener implements Listener {
 
     @org.bukkit.event.EventHandler
     public void onAim(PlayerInteractEvent event) {
-        if (event.getAction() != Action.RIGHT_CLICK_AIR && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+        boolean left = event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK;
+        boolean right = event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK;
+        if (!left && !right) return;
         if (event.getHand() != org.bukkit.inventory.EquipmentSlot.HAND) return;
         ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
         Gun aimedGun = registry.gunOf(held);
@@ -113,15 +115,24 @@ public final class ShootListener implements Listener {
         item.setItemMeta(meta);
     }
 
-    /** Left-click swings at nothing are the trigger now. */
+    /** Right click fires (back to the original trigger). Spyglass guns are
+     *  the exception: their right click is the scope, so they fire on left
+     *  (their aim-toggle path is skipped in onAim). */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onShoot(PlayerInteractEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
-        if (event.getAction() != Action.LEFT_CLICK_AIR && event.getAction() != Action.LEFT_CLICK_BLOCK) return;
+        boolean left = event.getAction() == Action.LEFT_CLICK_AIR || event.getAction() == Action.LEFT_CLICK_BLOCK;
+        boolean right = event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK;
+        if (!left && !right) return;
         ItemStack item = event.getPlayer().getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
-        event.setCancelled(true); // never fire the crossbow itself
+        // crossbow guns fire on RIGHT (left is the aim toggle, cancelled in
+        // onAim); spyglass guns fire on LEFT and their right click must pass
+        // through UNCANCELLED - that's the vanilla scope
+        boolean fires = gun.isSpyglass() ? left : right;
+        if (!fires) return;
+        event.setCancelled(true);
         shoot(event.getPlayer(), gun, item);
     }
 
@@ -202,7 +213,7 @@ public final class ShootListener implements Listener {
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
         event.setCancelled(true);
-        shoot(player, gun, held);
+        if (gun.isSpyglass()) shoot(player, gun, held); // sniper fires on left
     }
 
     /** The knife-server trick: a client-only empty hand for one tick makes
