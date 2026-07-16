@@ -21,7 +21,10 @@ public record Gun(
     String magId,      // mag id this gun reloads from ("" = old loose-rounds reload)
     String base,       // "crossbow" (default) or "spyglass" - snipers scope for real
     double spread,     // launch inaccuracy in degrees (0 = laser-accurate)
-    double drop        // downward curve per block travelled (0 = flat)
+    double drop,       // legacy hitscan downward curve per block (superseded by curve; kept for back-compat)
+    double speed,      // bullet projectile speed in blocks/tick (arrow launch velocity)
+    double curve,      // how much the bullet arcs down mid-flight (0 = flat, higher = more arc)
+    double aimSpread   // launch inaccuracy in degrees while aiming (crouch) - tighter than spread
 ) {
     /** Spyglass guns: right-click scopes with the vanilla spyglass zoom and
      *  the pack's custom sight overlay instead of the slowness ADS. */

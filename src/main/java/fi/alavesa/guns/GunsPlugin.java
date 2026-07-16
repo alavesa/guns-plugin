@@ -22,7 +22,9 @@ public final class GunsPlugin extends JavaPlugin {
         registry = new GunRegistry(this);
         registry.load();
         AmmoBar ammoBar = new AmmoBar();
-        getServer().getPluginManager().registerEvents(new ShootListener(this, registry, ammoBar), this);
+        ShootListener shootListener = new ShootListener(this, registry, ammoBar);
+        getServer().getPluginManager().registerEvents(shootListener, this);
+        getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
         // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks

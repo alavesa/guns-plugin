@@ -27,7 +27,8 @@ public final class GunRegistry {
 
     public static final Set<String> GUN_EDITABLE = Set.of(
         "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
-        "sound", "soundpitch", "effect", "effectticks", "effectlevel", "ricochet", "mag");
+        "sound", "soundpitch", "effect", "effectticks", "effectlevel", "ricochet", "mag",
+        "speed", "curve", "spread", "aimspread");
 
     public static final Set<String> GRENADE_EDITABLE = Set.of(
         "name", "model", "power", "fuseticks", "velocity", "breakblocks");
@@ -128,7 +129,13 @@ public final class GunRegistry {
                     magId,
                     s.getString("base", "crossbow"),
                     clamp(id, "spread", s.getDouble("spread", 2.0), 0, 30),
-                    clamp(id, "drop", s.getDouble("drop", 0.03), 0, 1)
+                    clamp(id, "drop", s.getDouble("drop", 0.03), 0, 1),
+                    clamp(id, "speed", s.getDouble("speed", 3.0), 0.5, 6),
+                    clamp(id, "curve", s.getDouble("curve", 0.05), 0, 1),
+                    // aim-spread defaults to a tighter 30% of the hip-fire spread when unset
+                    clamp(id, "aim-spread",
+                        s.getDouble("aim-spread", clamp(id, "spread", s.getDouble("spread", 2.0), 0, 30) * 0.3),
+                        0, 30)
                 ));
             }
         }
@@ -260,6 +267,10 @@ public final class GunRegistry {
             yaml.set("guns." + key + ".effect-ticks", 60);
             yaml.set("guns." + key + ".effect-level", 1);
             yaml.set("guns." + key + ".ricochet", 0);
+            yaml.set("guns." + key + ".spread", 2.0);
+            yaml.set("guns." + key + ".aim-spread", 0.6);
+            yaml.set("guns." + key + ".speed", 3.0);
+            yaml.set("guns." + key + ".curve", 0.05);
             yaml.set("guns." + key + ".mag", "none");
         }
         yaml.save(file);
@@ -372,6 +383,7 @@ public final class GunRegistry {
             case "soundpitch" -> "sound-pitch";
             case "effectticks" -> "effect-ticks";
             case "effectlevel" -> "effect-level";
+            case "aimspread" -> "aim-spread";
             case "fuseticks" -> "fuse-ticks";
             case "breakblocks" -> "break-blocks";
             default -> stat;

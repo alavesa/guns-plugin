@@ -7,6 +7,9 @@ import org.bukkit.Color;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
 import org.bukkit.Particle;
+import org.bukkit.entity.AbstractArrow;
+import org.bukkit.entity.Arrow;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -14,6 +17,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.EntityShootBowEvent;
+import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.EquipmentSlot;
@@ -22,6 +26,8 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.RayTraceResult;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Vector;
 
 import java.util.Map;
@@ -52,6 +58,10 @@ public final class ShootListener implements Listener {
 
     public ShootListener(GunsPlugin plugin, GunRegistry registry, AmmoBar ammoBar) {
         this.plugin = plugin;
+        this.bulletGunKey = new NamespacedKey(plugin, "bullet_gun");
+        this.bulletShooterKey = new NamespacedKey(plugin, "bullet_shooter");
+        this.bulletBouncesKey = new NamespacedKey(plugin, "bullet_bounces");
+        this.bulletBornKey = new NamespacedKey(plugin, "bullet_born");
         this.registry = registry;
         this.ammoBar = ammoBar;
     }
@@ -363,87 +373,33 @@ public final class ShootListener implements Listener {
         dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
-        long shotStart = System.nanoTime();
-
-        // Trace the bullet, bouncing off blocks up to gun.ricochet() times. After the first
-        // bounce the shooter is a valid target too (your own ricochet CAN hit you).
-        Location from = player.getEyeLocation();
-        Vector dir = from.getDirection();
-        // launch inaccuracy: a small random cone, tightened by aiming (crouch),
-        // so the bullet doesn't leave perfectly along the crosshair
-        double spread = gun.spread();
-        if (isAiming(player)) spread *= 0.3;
+        // launch a real projectile: spread cone (tighter while aiming),
+        // configurable speed, and a mid-flight arc applied by the tracker
+        Vector dir = player.getEyeLocation().getDirection();
+        double spread = isAiming(player) ? gun.aimSpread() : gun.spread();
         if (spread > 0) {
             var rng = java.util.concurrent.ThreadLocalRandom.current();
             dir = rotate(dir, Math.toRadians(rng.nextGaussian() * spread * 0.5),
                 Math.toRadians(rng.nextGaussian() * spread * 0.5));
         }
-        double remaining = gun.range();
-        int bounces = gun.ricochet();
-        boolean firstSegment = true;
-        // the path is walked in short steps; after each clear step the
-        // direction bends downward (drop), so the trajectory ARCS instead
-        // of running dead straight
-        final double STEP = 6.0;
-        int tracerBudget = plugin.getConfig().getInt("tracer-max-points", 40);
-
-        while (remaining > 0.5) {
-            boolean excludeShooter = firstSegment;
-            double segLen = Math.min(remaining, STEP);
-
-            RayTraceResult blockHit = player.getWorld().rayTraceBlocks(
-                from, dir, segLen, FluidCollisionMode.NEVER, true);
-            double searchDist = blockHit != null
-                ? from.toVector().distance(blockHit.getHitPosition())
-                : segLen;
-            RayTraceResult entityHit = searchDist > 0.1 ? player.getWorld().rayTraceEntities(
-                from, dir, searchDist, 0.25,
-                e -> e instanceof LivingEntity && (!excludeShooter || e != player)) : null;
-            RayTraceResult hit = entityHit != null ? entityHit : blockHit;
-
-            Location end = hit != null
-                ? hit.getHitPosition().toLocation(player.getWorld())
-                : from.clone().add(dir.clone().multiply(segLen));
-            tracerBudget -= drawTracer(from, end, firstSegment ? 1.5 : 0.0, tracerBudget);
-
-            if (hit != null && hit.getHitEntity() instanceof LivingEntity target) {
-                applyHit(player, gun, target, end);
-                break;
-            }
-            if (hit != null && hit.getHitBlock() != null && bounces > 0 && hit.getHitBlockFace() != null) {
-                Vector normal = hit.getHitBlockFace().getDirection();
-                dir = dir.clone().subtract(normal.clone().multiply(2 * dir.dot(normal))).normalize();
-                remaining -= from.distance(end);
-                from = end.clone().add(normal.clone().multiply(0.05));
-                bounces--;
-                firstSegment = false;
-                player.getWorld().playSound(end, "minecraft:block.chain.hit", 0.7f, 1.8f);
-                player.getWorld().spawnParticle(Particle.WAX_OFF, end, 3, 0.05, 0.05, 0.05, 0.2);
-                continue;
-            }
-            if (hit != null) {
-                player.getWorld().spawnParticle(Particle.SMOKE, end, 3, 0.05, 0.05, 0.05, 0.01);
-                break;
-            }
-            // clear step: advance and bend the path down by the drop
-            remaining -= segLen;
-            from = end;
-            if (gun.drop() > 0) {
-                dir = dir.clone().add(new Vector(0, -gun.drop() * segLen, 0)).normalize();
-            }
-            firstSegment = false;
-        }
-
+        Vector velocity = dir.normalize().multiply(gun.speed());
+        Arrow bullet = player.getWorld().spawnArrow(
+            player.getEyeLocation().add(dir.clone().multiply(0.6)), velocity, 1f, 0f);
+        bullet.setShooter(player);
+        bullet.setGravity(false);              // curve is applied manually by the tracker
+        bullet.setVelocity(velocity);
+        bullet.setPickupStatus(AbstractArrow.PickupStatus.DISALLOWED);
+        bullet.setPersistent(false);
+        bullet.setDamage(0);                   // our applyHit does the damage
+        bullet.setCritical(false);
+        bullet.setSilent(true);
+        var pdc = bullet.getPersistentDataContainer();
+        pdc.set(bulletGunKey, PersistentDataType.STRING, gun.id());
+        pdc.set(bulletShooterKey, PersistentDataType.STRING, player.getUniqueId().toString());
+        pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, gun.ricochet());
+        pdc.set(bulletBornKey, PersistentDataType.LONG, System.currentTimeMillis());
+        bullets.add(bullet.getUniqueId());
         ammoBar.update(player, gun, ammo - 1);
-
-        // Lag canary: if one shot stalls the main thread noticeably, say so in the console
-        // with the entity count - that tells us WHY the server is slow, without guessing.
-        long ms = (System.nanoTime() - shotStart) / 1_000_000;
-        if (ms > 50) {
-            plugin.getLogger().warning("Slow shot: " + gun.id() + " took " + ms + " ms (world has "
-                + player.getWorld().getEntityCount() + " entities). If this repeats, entity"
-                + " buildup near players is the likely lag source.");
-        }
     }
 
     /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */
@@ -462,6 +418,78 @@ public final class ShootListener implements Listener {
                 .add(axis.clone().multiply(axis.dot(v) * (1 - cp)));
         }
         return v.normalize();
+    }
+
+    // ---- projectile bullets ----------------------------------------------
+
+    private final NamespacedKey bulletGunKey;
+    private final NamespacedKey bulletShooterKey;
+    private final NamespacedKey bulletBouncesKey;
+    private final NamespacedKey bulletBornKey;
+    private final java.util.Set<java.util.UUID> bullets = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final long BULLET_LIFETIME_MS = 5000;
+
+    /** Every tick: arc live bullets down by their gun's curve, trail them,
+     *  and retire the spent ones. One global task, not one per shot. */
+    public void bulletTick() {
+        for (java.util.UUID id : bullets.toArray(new java.util.UUID[0])) {
+            Entity e = plugin.getServer().getEntity(id);
+            if (!(e instanceof Arrow bullet) || bullet.isDead() || !bullet.isValid()) {
+                bullets.remove(id);
+                continue;
+            }
+            var pdc = bullet.getPersistentDataContainer();
+            long born = pdc.getOrDefault(bulletBornKey, PersistentDataType.LONG, 0L);
+            if (System.currentTimeMillis() - born > BULLET_LIFETIME_MS || bullet.isOnGround()) {
+                bullet.remove();
+                bullets.remove(id);
+                continue;
+            }
+            Gun gun = registry.get(pdc.get(bulletGunKey, PersistentDataType.STRING));
+            if (gun != null && gun.curve() > 0) {
+                Vector v = bullet.getVelocity();
+                v.setY(v.getY() - gun.curve() * 0.08);
+                bullet.setVelocity(v);
+            }
+            bullet.getWorld().spawnParticle(Particle.CRIT, bullet.getLocation(), 1, 0, 0, 0, 0);
+        }
+    }
+
+    /** A bullet lands: apply the gun's hit to a living target, or bounce/expire. */
+    @EventHandler
+    public void onBulletHit(ProjectileHitEvent event) {
+        if (!(event.getEntity() instanceof Arrow bullet)) return;
+        var pdc = bullet.getPersistentDataContainer();
+        String gunId = pdc.get(bulletGunKey, PersistentDataType.STRING);
+        if (gunId == null) return;
+        Gun gun = registry.get(gunId);
+        String shooterId = pdc.get(bulletShooterKey, PersistentDataType.STRING);
+        Player shooter = shooterId == null ? null
+            : plugin.getServer().getPlayer(java.util.UUID.fromString(shooterId));
+
+        if (event.getHitEntity() instanceof LivingEntity target
+            && target != shooter && gun != null) {
+            applyHit(shooter, gun, target, bullet.getLocation());
+            bullet.remove();
+            bullets.remove(bullet.getUniqueId());
+            return;
+        }
+        if (event.getHitBlock() != null) {
+            int bounces = pdc.getOrDefault(bulletBouncesKey, PersistentDataType.INTEGER, 0);
+            if (bounces > 0 && event.getHitBlockFace() != null && gun != null) {
+                Vector normal = event.getHitBlockFace().getDirection();
+                Vector v = bullet.getVelocity();
+                Vector reflected = v.subtract(normal.multiply(2 * v.dot(normal)));
+                event.setCancelled(true);
+                bullet.setVelocity(reflected);
+                pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, bounces - 1);
+                bullet.getWorld().playSound(bullet.getLocation(), "minecraft:block.chain.hit", 0.7f, 1.8f);
+                return;
+            }
+            bullet.getWorld().spawnParticle(Particle.SMOKE, bullet.getLocation(), 3, 0.05, 0.05, 0.05, 0.01);
+            bullet.remove();
+            bullets.remove(bullet.getUniqueId());
+        }
     }
 
     private void applyHit(Player shooter, Gun gun, LivingEntity target, Location end) {
