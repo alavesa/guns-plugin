@@ -369,23 +369,33 @@ public final class ShootListener implements Listener {
         // bounce the shooter is a valid target too (your own ricochet CAN hit you).
         Location from = player.getEyeLocation();
         Vector dir = from.getDirection();
+        // launch inaccuracy: a small random cone, tightened by aiming (crouch),
+        // so the bullet doesn't leave perfectly along the crosshair
+        double spread = gun.spread();
+        if (isAiming(player)) spread *= 0.3;
+        if (spread > 0) {
+            var rng = java.util.concurrent.ThreadLocalRandom.current();
+            dir = rotate(dir, Math.toRadians(rng.nextGaussian() * spread * 0.5),
+                Math.toRadians(rng.nextGaussian() * spread * 0.5));
+        }
         double remaining = gun.range();
         int bounces = gun.ricochet();
         boolean firstSegment = true;
-
+        // the path is walked in short steps; after each clear step the
+        // direction bends downward (drop), so the trajectory ARCS instead
+        // of running dead straight
+        final double STEP = 6.0;
         int tracerBudget = plugin.getConfig().getInt("tracer-max-points", 40);
 
         while (remaining > 0.5) {
             boolean excludeShooter = firstSegment;
+            double segLen = Math.min(remaining, STEP);
 
-            // Cheap block trace first; entities are then only searched up to the wall.
-            // A full-range entity sweep builds a huge bounding box (90 blocks for the
-            // rifle) and scans every entity in it - THE server-lag hotspot indoors.
             RayTraceResult blockHit = player.getWorld().rayTraceBlocks(
-                from, dir, remaining, FluidCollisionMode.NEVER, true);
+                from, dir, segLen, FluidCollisionMode.NEVER, true);
             double searchDist = blockHit != null
                 ? from.toVector().distance(blockHit.getHitPosition())
-                : remaining;
+                : segLen;
             RayTraceResult entityHit = searchDist > 0.1 ? player.getWorld().rayTraceEntities(
                 from, dir, searchDist, 0.25,
                 e -> e instanceof LivingEntity && (!excludeShooter || e != player)) : null;
@@ -393,7 +403,7 @@ public final class ShootListener implements Listener {
 
             Location end = hit != null
                 ? hit.getHitPosition().toLocation(player.getWorld())
-                : from.clone().add(dir.clone().multiply(remaining));
+                : from.clone().add(dir.clone().multiply(segLen));
             tracerBudget -= drawTracer(from, end, firstSegment ? 1.5 : 0.0, tracerBudget);
 
             if (hit != null && hit.getHitEntity() instanceof LivingEntity target) {
@@ -413,8 +423,15 @@ public final class ShootListener implements Listener {
             }
             if (hit != null) {
                 player.getWorld().spawnParticle(Particle.SMOKE, end, 3, 0.05, 0.05, 0.05, 0.01);
+                break;
             }
-            break;
+            // clear step: advance and bend the path down by the drop
+            remaining -= segLen;
+            from = end;
+            if (gun.drop() > 0) {
+                dir = dir.clone().add(new Vector(0, -gun.drop() * segLen, 0)).normalize();
+            }
+            firstSegment = false;
         }
 
         ammoBar.update(player, gun, ammo - 1);
@@ -427,6 +444,24 @@ public final class ShootListener implements Listener {
                 + player.getWorld().getEntityCount() + " entities). If this repeats, entity"
                 + " buildup near players is the likely lag source.");
         }
+    }
+
+    /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */
+    private Vector rotate(Vector dir, double yaw, double pitch) {
+        double cy = Math.cos(yaw), sy = Math.sin(yaw);
+        double x = dir.getX() * cy - dir.getZ() * sy;
+        double z = dir.getX() * sy + dir.getZ() * cy;
+        Vector v = new Vector(x, dir.getY(), z);
+        // pitch around the horizontal axis perpendicular to v
+        Vector axis = new Vector(-z, 0, x);
+        if (axis.lengthSquared() > 1e-6) {
+            axis.normalize();
+            double cp = Math.cos(pitch), sp = Math.sin(pitch);
+            v = v.clone().multiply(cp)
+                .add(axis.clone().crossProduct(v).multiply(sp))
+                .add(axis.clone().multiply(axis.dot(v) * (1 - cp)));
+        }
+        return v.normalize();
     }
 
     private void applyHit(Player shooter, Gun gun, LivingEntity target, Location end) {

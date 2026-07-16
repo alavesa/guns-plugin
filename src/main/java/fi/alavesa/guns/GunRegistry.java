@@ -126,7 +126,9 @@ public final class GunRegistry {
                     (int) clamp(id, "effect-level", s.getInt("effect-level", 1), 1, 10),
                     (int) clamp(id, "ricochet", s.getInt("ricochet", 0), 0, 8),
                     magId,
-                    s.getString("base", "crossbow")
+                    s.getString("base", "crossbow"),
+                    clamp(id, "spread", s.getDouble("spread", 2.0), 0, 30),
+                    clamp(id, "drop", s.getDouble("drop", 0.03), 0, 1)
                 ));
             }
         }

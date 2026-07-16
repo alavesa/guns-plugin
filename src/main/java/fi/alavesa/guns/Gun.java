@@ -19,7 +19,9 @@ public record Gun(
     int effectLevel,   // effect strength (bleed: damage per second; potions: amplifier+1)
     int ricochet,      // how many times a bullet bounces off blocks (0 = none)
     String magId,      // mag id this gun reloads from ("" = old loose-rounds reload)
-    String base        // "crossbow" (default) or "spyglass" - snipers scope for real
+    String base,       // "crossbow" (default) or "spyglass" - snipers scope for real
+    double spread,     // launch inaccuracy in degrees (0 = laser-accurate)
+    double drop        // downward curve per block travelled (0 = flat)
 ) {
     /** Spyglass guns: right-click scopes with the vanilla spyglass zoom and
      *  the pack's custom sight overlay instead of the slowness ADS. */
