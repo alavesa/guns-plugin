@@ -66,6 +66,11 @@ public final class ShootListener implements Listener {
     /** The custom_model_data suffix the resource pack dispatches to the ironsights model. */
     private static final String AIM_SUFFIX = "_aim";
 
+    /** Set while a gun's OWN shot damage is being applied, so onPointBlank
+     *  doesn't mistake it for a melee swing and cancel it (the 'guns stopped
+     *  dealing damage' bug: the plugin was cancelling its own gunfire). */
+    private final java.util.Set<java.util.UUID> firing = new java.util.HashSet<>();
+
     public boolean isAiming(Player player) {
         return aiming.contains(player.getUniqueId());
     }
@@ -209,12 +214,7 @@ public final class ShootListener implements Listener {
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
         repairPose(item);
-        if (gun.isSpyglass()) {
-            if (!left) return; // right click scopes - leave it to vanilla
-            event.setCancelled(true);
-            shoot(event.getPlayer(), gun, item);
-            return;
-        }
+        if (gun.isSpyglass()) return; // right scopes (vanilla), left fires via onSwing
         // crossbow gun: no vanilla behavior ever - right fires, left is a dead key
         event.setCancelled(true);
         if (right) shoot(event.getPlayer(), gun, item);
@@ -293,11 +293,11 @@ public final class ShootListener implements Listener {
     @org.bukkit.event.EventHandler(ignoreCancelled = true)
     public void onPointBlank(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Player player)) return;
+        if (firing.contains(player.getUniqueId())) return; // our own bullet - let it through
         ItemStack held = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
-        event.setCancelled(true);
-        if (gun.isSpyglass()) shoot(player, gun, held); // sniper fires on left
+        event.setCancelled(true); // no melee bonk with a gun; firing is handled elsewhere
     }
 
     /** The knife-server trick: a client-only empty hand for one tick makes
@@ -319,9 +319,14 @@ public final class ShootListener implements Listener {
      *  cancelled server-side (Paper's arm swing event). */
     @org.bukkit.event.EventHandler(ignoreCancelled = true)
     public void onSwing(io.papermc.paper.event.player.PlayerArmSwingEvent event) {
-        if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null) {
-            event.setCancelled(true);
-        }
+        Player player = event.getPlayer();
+        ItemStack held = player.getInventory().getItemInMainHand();
+        Gun gun = registry.gunOf(held);
+        if (gun == null) return;
+        event.setCancelled(true); // no visible swing with a gun
+        // the arm-swing packet fires on left-click even WHILE scoping a
+        // spyglass, so this is the sniper's trigger - it works aimed or not
+        if (gun.isSpyglass()) shoot(player, gun, held);
     }
 
     /** The charged arrow exists only for the aiming pose - if anything
@@ -438,7 +443,12 @@ public final class ShootListener implements Listener {
             };
         }
 
-        target.damage(damage, shooter);
+        firing.add(shooter.getUniqueId());
+        try {
+            target.damage(damage, shooter);
+        } finally {
+            firing.remove(shooter.getUniqueId());
+        }
         target.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);
         if (part != null) {
             ((Player) target).sendActionBar(Component.text("You were shot in the " + part + ".",
