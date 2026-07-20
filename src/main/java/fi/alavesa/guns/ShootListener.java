@@ -414,18 +414,20 @@ public final class ShootListener implements Listener {
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
-        // Camera recoil: kick the view UP by the gun's recoil degrees. A teleport
-        // to the same spot with a raised pitch is what actually moves the client's
-        // camera - but a teleport zeroes velocity, so we capture the player's
-        // momentum and restore it right after. No knockback, no dead stop: you
-        // keep whatever speed you were already carrying. Per-gun, editable with
-        // /guns edit <gun> recoil <degrees>.
+        // Camera recoil: kick the view UP by the gun's recoil degrees. We move only
+        // the PITCH with a RELATIVE teleport (X/Y/Z/yaw flagged relative, delta 0),
+        // so the client applies it as a look-adjust packet that leaves velocity
+        // untouched - no knockback, no dead stop, you keep all your momentum. An
+        // absolute teleport zeroes velocity, which is what killed it before.
+        // Per-gun, editable with /guns edit <gun> recoil <degrees>.
         if (gun.recoil() > 0) {
-            org.bukkit.util.Vector momentum = player.getVelocity();
             Location aim = player.getLocation();
             aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
-            player.teleport(aim);
-            player.setVelocity(momentum);
+            player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
+                io.papermc.paper.entity.TeleportFlag.Relative.X,
+                io.papermc.paper.entity.TeleportFlag.Relative.Y,
+                io.papermc.paper.entity.TeleportFlag.Relative.Z,
+                io.papermc.paper.entity.TeleportFlag.Relative.YAW);
         }
         dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
