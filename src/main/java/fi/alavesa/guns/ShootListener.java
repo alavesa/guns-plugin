@@ -225,13 +225,34 @@ public final class ShootListener implements Listener {
         if (gun == null) return;
         repairPose(item);
         if (gun.isSpyglass()) return; // right scopes (vanilla), left fires via onSwing
-        // crossbow gun: no vanilla behavior ever - right fires, left is a dead key
+        // crossbow gun: no vanilla behavior ever - right fires, LEFT switches the
+        // fire mode (semi <-> auto) with no command to type.
         event.setCancelled(true);
         if (right) {
             // AUTO: hold right-click to keep firing; SEMI: one shot per click.
             if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(event.getPlayer(), gun);
             else shoot(event.getPlayer(), gun, item);
+        } else if (left) {
+            toggleMode(event.getPlayer(), gun, item);
         }
+    }
+
+    /** Left-click cycles the held gun's fire mode (only if it offers more than
+     *  one). A short cooldown stops a stray double-click double-toggling. */
+    private final Map<UUID, Long> modeSwapCd = new ConcurrentHashMap<>();
+    private void toggleMode(Player player, Gun gun, ItemStack item) {
+        java.util.List<String> modes = gun.modes();
+        if (modes.size() < 2) return;
+        long now = System.currentTimeMillis();
+        Long until = modeSwapCd.get(player.getUniqueId());
+        if (until != null && now < until) return;
+        modeSwapCd.put(player.getUniqueId(), now + 300);
+        String next = modes.get((modes.indexOf(registry.fireModeOf(item, gun)) + 1) % modes.size());
+        registry.setFireMode(item, next);
+        player.getInventory().setItemInMainHand(item);
+        Msg.actionbar(player, Component.text("Fire mode: " + next.toUpperCase(), NamedTextColor.GRAY));
+        player.playSound(player.getLocation(), "minecraft:block.lever.click", 0.7f, 1.4f);
+        ammoBar.update(player, gun, registry.ammoOf(item), next);
     }
 
     /** Players currently auto-firing (one repeating task each). */
