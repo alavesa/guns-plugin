@@ -414,21 +414,6 @@ public final class ShootListener implements Listener {
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
-        // Camera recoil: kick the view UP by the gun's recoil degrees. We move only
-        // the PITCH with a RELATIVE teleport (X/Y/Z/yaw flagged relative, delta 0),
-        // so the client applies it as a look-adjust packet that leaves velocity
-        // untouched - no knockback, no dead stop, you keep all your momentum. An
-        // absolute teleport zeroes velocity, which is what killed it before.
-        // Per-gun, editable with /guns edit <gun> recoil <degrees>.
-        if (gun.recoil() > 0) {
-            Location aim = player.getLocation();
-            aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
-            player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
-                io.papermc.paper.entity.TeleportFlag.Relative.X,
-                io.papermc.paper.entity.TeleportFlag.Relative.Y,
-                io.papermc.paper.entity.TeleportFlag.Relative.Z,
-                io.papermc.paper.entity.TeleportFlag.Relative.YAW);
-        }
         dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
@@ -459,6 +444,25 @@ public final class ShootListener implements Listener {
         pdc.set(bulletBornKey, PersistentDataType.LONG, System.currentTimeMillis());
         bullets.add(bullet.getUniqueId());
         ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun));
+
+        // Camera recoil LAST, and defensively: kick the view UP by the gun's recoil
+        // via a RELATIVE teleport (only pitch absolute; x/y/z/yaw relative deltas of
+        // zero) so momentum is preserved. It runs AFTER the bullet is already away and
+        // is wrapped so that if the teleport ever fails on a given server build it can
+        // never abort the shot - the bullet has already fired and dealt its damage.
+        if (gun.recoil() > 0) {
+            try {
+                Location aim = player.getLocation();
+                aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
+                player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
+                    io.papermc.paper.entity.TeleportFlag.Relative.X,
+                    io.papermc.paper.entity.TeleportFlag.Relative.Y,
+                    io.papermc.paper.entity.TeleportFlag.Relative.Z,
+                    io.papermc.paper.entity.TeleportFlag.Relative.YAW);
+            } catch (Throwable t) {
+                // recoil is cosmetic - never let it break firing
+            }
+        }
     }
 
     /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */
@@ -565,17 +569,27 @@ public final class ShootListener implements Listener {
             };
         }
 
-        firing.add(shooter.getUniqueId());
-        try {
-            target.damage(damage, shooter);
-        } finally {
-            firing.remove(shooter.getUniqueId());
+        // A bullet is not a knockback stick: keep the victim's own momentum through
+        // the hit so a gunner can't shove a melee player away for free. We snapshot
+        // the velocity and restore it right after the damage (which is where vanilla
+        // would otherwise apply attack knockback). Damage still lands in full.
+        Vector preHit = target.getVelocity();
+        if (shooter != null) {
+            firing.add(shooter.getUniqueId());
+            try {
+                target.damage(damage, shooter);
+            } finally {
+                firing.remove(shooter.getUniqueId());
+            }
+        } else {
+            target.damage(damage);   // shooter left the server - still deal the hit
         }
+        target.setVelocity(preHit);
         target.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);
         if (part != null) {
             ((Player) target).sendActionBar(Component.text("You were shot in the " + part + ".",
                 NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
-            if (part.equals("head")) {
+            if (part.equals("head") && shooter != null) {
                 Msg.actionbar(shooter, Component.text("Headshot.", NamedTextColor.GRAY)
                     .decorate(TextDecoration.ITALIC));
             }
