@@ -9,7 +9,7 @@ dispatches on. Changing looks never touches code.
 The default textures live in the combined pack sources at
 `resource-pack/assets/guns/textures/item/` (mag_pistol.png, mag_rifle.png,
 mag_rifle_drum.png, ...  16x16). Repaint the PNG, keep the filename, rebuild
-the combined pack (`/Users/piia/Lab/tools/build-pack.sh` - prints the new
+the combined pack (`~/Lab/tools/build-pack.sh` - prints the new
 sha1 for server.properties). `tools/gen_mags.py` restores the defaults.
 
 ## Giving a mag a brand-new look
