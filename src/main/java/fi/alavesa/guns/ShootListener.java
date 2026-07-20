@@ -474,7 +474,9 @@ public final class ShootListener implements Listener {
         // zero) so momentum is preserved. It runs AFTER the bullet is already away and
         // is wrapped so that if the teleport ever fails on a given server build it can
         // never abort the shot - the bullet has already fired and dealt its damage.
-        if (gun.recoil() > 0) {
+        // Skipped while riding: teleporting a passenger dismounts them, which was
+        // ejecting players from cars every time they fired.
+        if (gun.recoil() > 0 && !player.isInsideVehicle()) {
             try {
                 Location aim = player.getLocation();
                 aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
