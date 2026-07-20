@@ -414,19 +414,18 @@ public final class ShootListener implements Listener {
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
-        if (plugin.getConfig().getBoolean("recoil-kick", true)) {
-            org.bukkit.util.Vector kick = player.getLocation().getDirection()
-                .setY(0).normalize().multiply(-0.06);
-            kick.setY(0.02);
-            player.setVelocity(player.getVelocity().add(kick));
-        }
         // Camera recoil: kick the view UP by the gun's recoil degrees. A teleport
         // to the same spot with a raised pitch is what actually moves the client's
-        // camera. Per-gun, editable with /guns edit <gun> recoil <degrees>.
+        // camera - but a teleport zeroes velocity, so we capture the player's
+        // momentum and restore it right after. No knockback, no dead stop: you
+        // keep whatever speed you were already carrying. Per-gun, editable with
+        // /guns edit <gun> recoil <degrees>.
         if (gun.recoil() > 0) {
+            org.bukkit.util.Vector momentum = player.getVelocity();
             Location aim = player.getLocation();
             aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
             player.teleport(aim);
+            player.setVelocity(momentum);
         }
         dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
