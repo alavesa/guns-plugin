@@ -227,7 +227,36 @@ public final class ShootListener implements Listener {
         if (gun.isSpyglass()) return; // right scopes (vanilla), left fires via onSwing
         // crossbow gun: no vanilla behavior ever - right fires, left is a dead key
         event.setCancelled(true);
-        if (right) shoot(event.getPlayer(), gun, item);
+        if (right) {
+            // AUTO: hold right-click to keep firing; SEMI: one shot per click.
+            if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(event.getPlayer(), gun);
+            else shoot(event.getPlayer(), gun, item);
+        }
+    }
+
+    /** Players currently auto-firing (one repeating task each). */
+    private final Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
+
+    /** Keep firing an AUTO gun while the trigger is held. shoot() enforces the
+     *  fire-rate, so a per-tick call fires exactly at the gun's cadence. Stops the
+     *  moment the player releases (hand no longer raised), swaps the gun, empties,
+     *  or flips back to semi. */
+    private void startAuto(Player player, Gun gun) {
+        UUID id = player.getUniqueId();
+        if (!autoFiring.add(id)) return;
+        new BukkitRunnable() {
+            @Override public void run() {
+                ItemStack held = player.getInventory().getItemInMainHand();
+                Gun g = registry.gunOf(held);
+                if (!player.isOnline() || g == null || !g.id().equals(gun.id())
+                    || !"auto".equals(registry.fireModeOf(held, g)) || !player.isHandRaised()) {
+                    autoFiring.remove(id);
+                    cancel();
+                    return;
+                }
+                shoot(player, g, held);
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
     }
 
     /** Belt and suspenders: no vanilla arrow may ever leave a gun. */
@@ -278,7 +307,7 @@ public final class ShootListener implements Listener {
             registry.setAmmo(now, held.magazine());
             player.getInventory().setItemInMainHand(now);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
-            ammoBar.update(player, held, held.magazine());
+            ammoBar.update(player, held, held.magazine(), registry.fireModeOf(now, held));
         }, gun.reloadTicks());
     }
 
@@ -370,6 +399,14 @@ public final class ShootListener implements Listener {
             kick.setY(0.02);
             player.setVelocity(player.getVelocity().add(kick));
         }
+        // Camera recoil: kick the view UP by the gun's recoil degrees. A teleport
+        // to the same spot with a raised pitch is what actually moves the client's
+        // camera. Per-gun, editable with /guns edit <gun> recoil <degrees>.
+        if (gun.recoil() > 0) {
+            Location aim = player.getLocation();
+            aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
+            player.teleport(aim);
+        }
         dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
@@ -399,7 +436,7 @@ public final class ShootListener implements Listener {
         pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, gun.ricochet());
         pdc.set(bulletBornKey, PersistentDataType.LONG, System.currentTimeMillis());
         bullets.add(bullet.getUniqueId());
-        ammoBar.update(player, gun, ammo - 1);
+        ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun));
     }
 
     /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */

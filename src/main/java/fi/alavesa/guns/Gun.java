@@ -24,8 +24,27 @@ public record Gun(
     double drop,       // legacy hitscan downward curve per block (superseded by curve; kept for back-compat)
     double speed,      // bullet projectile speed in blocks/tick (arrow launch velocity)
     double curve,      // how much the bullet arcs down mid-flight (0 = flat, higher = more arc)
-    double aimSpread   // launch inaccuracy in degrees while aiming (crouch) - tighter than spread
+    double aimSpread,  // launch inaccuracy in degrees while aiming (crouch) - tighter than spread
+    String fireModes,  // which trigger modes it offers: "semi", "auto", or "semi,auto"
+    double recoil      // camera kick UP in degrees per shot (0 = none)
 ) {
+
+    /** The trigger modes this gun offers, in order (first is the default). */
+    public java.util.List<String> modes() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (fireModes != null) {
+            for (String m : fireModes.toLowerCase().split(",")) {
+                String t = m.trim();
+                if ((t.equals("semi") || t.equals("auto")) && !out.contains(t)) out.add(t);
+            }
+        }
+        return out.isEmpty() ? java.util.List.of("semi") : out;
+    }
+
+    public String defaultMode() { return modes().get(0); }
+
+    public boolean hasMode(String mode) { return modes().contains(mode == null ? "" : mode.toLowerCase()); }
+
     /** Spyglass guns: right-click scopes with the vanilla spyglass zoom and
      *  the pack's custom sight overlay instead of the slowness ADS. */
     public boolean isSpyglass() {

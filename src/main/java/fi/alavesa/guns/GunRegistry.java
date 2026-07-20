@@ -28,7 +28,7 @@ public final class GunRegistry {
     public static final Set<String> GUN_EDITABLE = Set.of(
         "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
         "sound", "soundpitch", "effect", "effectticks", "effectlevel", "ricochet", "mag",
-        "speed", "curve", "spread", "aimspread");
+        "speed", "curve", "spread", "aimspread", "firemodes", "recoil");
 
     public static final Set<String> GRENADE_EDITABLE = Set.of(
         "name", "model", "power", "fuseticks", "velocity", "breakblocks");
@@ -53,6 +53,7 @@ public final class GunRegistry {
     private final NamespacedKey ammoKey;
     private final NamespacedKey magKey;
     private final NamespacedKey magCapacityKey;
+    private final NamespacedKey fireModeKey;
     private final Map<String, Gun> guns = new LinkedHashMap<>();
     private final Map<String, Grenade> grenades = new LinkedHashMap<>();
     private final Map<String, Mag> mags = new LinkedHashMap<>();
@@ -66,6 +67,21 @@ public final class GunRegistry {
         this.ammoKey = new NamespacedKey(plugin, "ammo");
         this.magKey = new NamespacedKey(plugin, "mag");
         this.magCapacityKey = new NamespacedKey(plugin, "mag_capacity");
+        this.fireModeKey = new NamespacedKey(plugin, "fire_mode");
+    }
+
+    /** The gun item's selected fire mode, defaulting to the gun's first offered
+     *  mode if none is stamped or the stamped one is no longer offered. */
+    public String fireModeOf(ItemStack item, Gun gun) {
+        if (item == null || !item.hasItemMeta()) return gun.defaultMode();
+        String m = item.getItemMeta().getPersistentDataContainer().get(fireModeKey, PersistentDataType.STRING);
+        return (m != null && gun.hasMode(m)) ? m : gun.defaultMode();
+    }
+
+    public void setFireMode(ItemStack item, String mode) {
+        var meta = item.getItemMeta();
+        meta.getPersistentDataContainer().set(fireModeKey, PersistentDataType.STRING, mode);
+        item.setItemMeta(meta);
     }
 
     public NamespacedKey grenadeKey() { return grenadeKey; }
@@ -135,7 +151,9 @@ public final class GunRegistry {
                     // aim-spread defaults to a tighter 30% of the hip-fire spread when unset
                     clamp(id, "aim-spread",
                         s.getDouble("aim-spread", clamp(id, "spread", s.getDouble("spread", 2.0), 0, 30) * 0.3),
-                        0, 30)
+                        0, 30),
+                    s.getString("fire-modes", "semi"),
+                    clamp(id, "recoil", s.getDouble("recoil", 1.0), 0, 30)
                 ));
             }
         }
@@ -271,6 +289,8 @@ public final class GunRegistry {
             yaml.set("guns." + key + ".aim-spread", 0.6);
             yaml.set("guns." + key + ".speed", 3.0);
             yaml.set("guns." + key + ".curve", 0.05);
+            yaml.set("guns." + key + ".fire-modes", "semi");
+            yaml.set("guns." + key + ".recoil", 1.0);
             yaml.set("guns." + key + ".mag", "none");
         }
         yaml.save(file);
@@ -323,6 +343,15 @@ public final class GunRegistry {
                             + ", or 'none'.";
                     }
                     yaml.set(path + "mag", magId);
+                }
+                case "firemodes" -> {
+                    // normalise to the offered set; anything invalid -> "semi"
+                    java.util.List<String> ok = new java.util.ArrayList<>();
+                    for (String m : value.toLowerCase().split(",")) {
+                        String t = m.trim();
+                        if ((t.equals("semi") || t.equals("auto")) && !ok.contains(t)) ok.add(t);
+                    }
+                    yaml.set(path + "fire-modes", ok.isEmpty() ? "semi" : String.join(",", ok));
                 }
                 case "name", "model", "sound", "effect" -> yaml.set(path + yamlKey(statKey), value);
                 case "magazine", "reloadticks", "effectticks", "effectlevel", "ricochet" -> {
@@ -384,6 +413,7 @@ public final class GunRegistry {
             case "effectticks" -> "effect-ticks";
             case "effectlevel" -> "effect-level";
             case "aimspread" -> "aim-spread";
+            case "firemodes" -> "fire-modes";
             case "fuseticks" -> "fuse-ticks";
             case "breakblocks" -> "break-blocks";
             default -> stat;

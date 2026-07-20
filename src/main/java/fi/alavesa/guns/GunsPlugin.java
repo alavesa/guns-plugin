@@ -31,9 +31,10 @@ public final class GunsPlugin extends JavaPlugin {
         // keeps it correct across item switches/pickups; shots and reloads update it instantly.
         getServer().getScheduler().runTaskTimer(this, () -> {
             for (var player : getServer().getOnlinePlayers()) {
-                Gun gun = registry.gunOf(player.getInventory().getItemInMainHand());
+                var held = player.getInventory().getItemInMainHand();
+                Gun gun = registry.gunOf(held);
                 if (gun != null) {
-                    ammoBar.update(player, gun, registry.ammoOf(player.getInventory().getItemInMainHand()));
+                    ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun));
                 } else {
                     ammoBar.hide(player);
                 }
@@ -119,6 +120,23 @@ public final class GunsPlugin extends JavaPlugin {
                         + " gun(s), " + registry.magIds().size() + " mag(s).", NamedTextColor.GOLD));
                     return true;
                 }
+                case "firemode", "mode" -> {
+                    if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
+                    org.bukkit.inventory.ItemStack held = player.getInventory().getItemInMainHand();
+                    Gun gun = registry.gunOf(held);
+                    if (gun == null) return error(sender, "Hold a gun to switch its fire mode.");
+                    var modes = gun.modes();
+                    if (modes.size() < 2) {
+                        return error(sender, "This gun has only one fire mode (" + modes.get(0).toUpperCase() + ").");
+                    }
+                    String current = registry.fireModeOf(held, gun);
+                    String next = modes.get((modes.indexOf(current) + 1) % modes.size());
+                    registry.setFireMode(held, next);
+                    player.getInventory().setItemInMainHand(held);
+                    sender.sendMessage(Component.text("Fire mode: " + next.toUpperCase(), NamedTextColor.GOLD));
+                    player.playSound(player.getLocation(), "minecraft:block.lever.click", 0.7f, 1.4f);
+                    return true;
+                }
                 default -> { return usage(sender); }
             }
         } catch (IOException e) {
@@ -130,7 +148,7 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> filter(Stream.of("list", "give", "create", "edit", "remove", "reload"), args[0]);
+            case 1 -> filter(Stream.of("list", "give", "create", "edit", "remove", "reload", "firemode"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")) {
                     yield filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())
