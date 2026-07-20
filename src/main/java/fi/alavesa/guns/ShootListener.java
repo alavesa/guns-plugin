@@ -625,6 +625,7 @@ public final class ShootListener implements Listener {
         // the velocity and restore it right after the damage (which is where vanilla
         // would otherwise apply attack knockback). Damage still lands in full.
         Vector preHit = target.getVelocity();
+        double hpBefore = target.getHealth();
         if (shooter != null) {
             recentGunHit.put(shooter.getUniqueId(), System.currentTimeMillis());
             firing.add(shooter.getUniqueId());
@@ -635,6 +636,18 @@ public final class ShootListener implements Listener {
             }
         } else {
             target.damage(damage);   // shooter left the server - still deal the hit
+        }
+        // If PvP is off (server.properties pvp=false or a world/region flag), the
+        // credited player-vs-player hit above is silently cancelled by the game -
+        // which is exactly why bullets hurt mobs but not players. When bypass-pvp
+        // is on (default), force the hit through as source-less damage so guns
+        // still work. Enable real PvP for full kill-credit instead.
+        if (target instanceof Player && damage > 0
+                && target.getHealth() >= hpBefore - 0.001
+                && !target.isDead()
+                && plugin.getConfig().getBoolean("bypass-pvp", true)) {
+            target.setNoDamageTicks(0);
+            target.damage(damage);
         }
         target.setVelocity(preHit);
         target.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);

@@ -2,3 +2,10 @@
 # if the server or clients struggle.
 tracer-step: 2.0        # blocks between tracer particles (bigger = lighter)
 tracer-max-points: 40   # max tracer particles per shot
+
+# When the server/world has PvP disabled, player-vs-player bullet hits are
+# cancelled by the game (this is why guns hurt mobs but not players). With this
+# on, guns force the hit through anyway so they always work. Turn it OFF and
+# enable real PvP (server.properties pvp=true) if you want proper kill credit
+# and to respect no-PvP safe zones.
+bypass-pvp: true
