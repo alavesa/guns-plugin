@@ -80,6 +80,10 @@ public final class ShootListener implements Listener {
      *  doesn't mistake it for a melee swing and cancel it (the 'guns stopped
      *  dealing damage' bug: the plugin was cancelling its own gunfire). */
     private final java.util.Set<java.util.UUID> firing = new java.util.HashSet<>();
+    /** When each shooter last dealt bullet damage - lets onPointBlank allow a gun's
+     *  own hit even if the damage event is dispatched a tick late (26.x), which
+     *  would otherwise see the firing flag already cleared and cancel the shot. */
+    private final java.util.Map<java.util.UUID, Long> recentGunHit = new java.util.concurrent.ConcurrentHashMap<>();
 
     public boolean isAiming(Player player) {
         return aiming.contains(player.getUniqueId());
@@ -237,6 +241,24 @@ public final class ShootListener implements Listener {
         }
     }
 
+    /** While seated in a vehicle (a car) your view is filled by the car model, so
+     *  right-clicks land on the car ENTITY (PlayerInteractEntityEvent) and never
+     *  reach onShoot - which is why you couldn't shoot from a car seat. Fire the
+     *  held gun from here too. Gated on isInsideVehicle so it never hijacks the
+     *  right-click you use to ENTER a car. */
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onShootFromVehicle(org.bukkit.event.player.PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
+        Player player = event.getPlayer();
+        if (!player.isInsideVehicle()) return;
+        ItemStack item = player.getInventory().getItemInMainHand();
+        Gun gun = registry.gunOf(item);
+        if (gun == null || gun.isSpyglass()) return;   // spyglass fires on left-click/swing
+        event.setCancelled(true);
+        if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(player, gun);
+        else shoot(player, gun, item);
+    }
+
     /** Left-click cycles the held gun's fire mode (only if it offers more than
      *  one). A short cooldown stops a stray double-click double-toggling. */
     private final Map<UUID, Long> modeSwapCd = new ConcurrentHashMap<>();
@@ -354,6 +376,8 @@ public final class ShootListener implements Listener {
     public void onPointBlank(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Player player)) return;
         if (firing.contains(player.getUniqueId())) return; // our own bullet - let it through
+        Long lastHit = recentGunHit.get(player.getUniqueId());
+        if (lastHit != null && System.currentTimeMillis() - lastHit < 150) return; // gun hit dispatched late
         ItemStack held = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
@@ -514,6 +538,31 @@ public final class ShootListener implements Listener {
                 v.setY(v.getY() - gun.curve() * 0.08);
                 bullet.setVelocity(v);
             }
+
+            // Manual hit detection: fast, no-gravity arrows routinely TUNNEL through
+            // players between ticks, so ProjectileHitEvent never fires for the entity -
+            // this is why bullets often failed to damage. Ray-trace this tick's travel
+            // segment ourselves and apply the hit reliably.
+            if (gun != null) {
+                Vector vel = bullet.getVelocity();
+                double reach = vel.length() + 0.5;
+                if (reach > 0.01) {
+                    String shooterId = pdc.get(bulletShooterKey, PersistentDataType.STRING);
+                    Player shooter = shooterId == null ? null
+                        : plugin.getServer().getPlayer(java.util.UUID.fromString(shooterId));
+                    org.bukkit.util.RayTraceResult rt = bullet.getWorld().rayTraceEntities(
+                        bullet.getLocation(), vel.clone().normalize(), reach, 0.35,
+                        ent -> ent instanceof LivingEntity && ent != shooter
+                            && !bullets.contains(ent.getUniqueId()));
+                    if (rt != null && rt.getHitEntity() instanceof LivingEntity target) {
+                        Location end = rt.getHitPosition().toLocation(bullet.getWorld());
+                        applyHit(shooter, gun, target, end);
+                        bullet.remove();
+                        bullets.remove(id);
+                        continue;
+                    }
+                }
+            }
             bullet.getWorld().spawnParticle(Particle.CRIT, bullet.getLocation(), 1, 0, 0, 0, 0);
         }
     }
@@ -575,6 +624,7 @@ public final class ShootListener implements Listener {
         // would otherwise apply attack knockback). Damage still lands in full.
         Vector preHit = target.getVelocity();
         if (shooter != null) {
+            recentGunHit.put(shooter.getUniqueId(), System.currentTimeMillis());
             firing.add(shooter.getUniqueId());
             try {
                 target.damage(damage, shooter);
