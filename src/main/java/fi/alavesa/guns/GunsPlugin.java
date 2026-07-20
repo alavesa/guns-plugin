@@ -15,11 +15,22 @@ import java.util.stream.Stream;
 public final class GunsPlugin extends JavaPlugin {
 
     private GunRegistry registry;
+    private static GunRegistry REGISTRY;   // static handle for cross-plugin damage lookups
+
+    /** The configured damage of the gun this item is, or -1 if it isn't a gun.
+     *  Other plugins (Terminal's CCTV bodies) call this by reflection to charge
+     *  the real weapon damage instead of a bare-hand melee value. */
+    public static double gunDamageOf(org.bukkit.inventory.ItemStack item) {
+        if (REGISTRY == null || item == null) return -1;
+        Gun gun = REGISTRY.gunOf(item);
+        return gun == null ? -1 : gun.damage();
+    }
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         registry = new GunRegistry(this);
+        REGISTRY = registry;
         registry.load();
         AmmoBar ammoBar = new AmmoBar();
         ShootListener shootListener = new ShootListener(this, registry, ammoBar);
