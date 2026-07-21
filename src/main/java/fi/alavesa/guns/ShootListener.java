@@ -849,9 +849,40 @@ public final class ShootListener implements Listener {
                 return;
             }
             bullet.getWorld().spawnParticle(Particle.SMOKE, bullet.getLocation(), 3, 0.05, 0.05, 0.05, 0.01);
+            spawnBulletHole(bullet.getLocation(), event.getHitBlockFace());
             bullet.remove();
             bullets.remove(bullet.getUniqueId());
         }
+    }
+
+    /** Leave a small bullet-hole decal on the wall a bullet stopped against - an
+     *  ItemDisplay of the guns:bullet_hole sprite, laid flat on the struck face and
+     *  removed after 15 seconds. */
+    private void spawnBulletHole(Location hit, org.bukkit.block.BlockFace face) {
+        if (face == null || hit.getWorld() == null) return;
+        Vector n = face.getDirection();
+        Location loc = hit.clone().add(n.clone().multiply(0.02));   // just off the surface
+        ItemStack holeItem = new ItemStack(org.bukkit.Material.FLINT);
+        var meta = holeItem.getItemMeta();
+        var cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(java.util.List.of("bullet_hole"));
+        meta.setCustomModelDataComponent(cmd);
+        holeItem.setItemMeta(meta);
+        org.bukkit.entity.ItemDisplay disp = hit.getWorld().spawn(loc,
+            org.bukkit.entity.ItemDisplay.class, d -> {
+                d.setItemStack(holeItem);
+                d.setBillboard(org.bukkit.entity.Display.Billboard.FIXED);
+                d.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
+                d.setViewRange(0.5f);   // only visible up close
+                // align the flat sprite (+Z) to the wall's outward normal
+                org.joml.Quaternionf rot = new org.joml.Quaternionf().rotationTo(
+                    0f, 0f, 1f, (float) n.getX(), (float) n.getY(), (float) n.getZ());
+                d.setTransformation(new org.bukkit.util.Transformation(
+                    new org.joml.Vector3f(0f, 0f, 0f), rot,
+                    new org.joml.Vector3f(0.35f, 0.35f, 0.35f), new org.joml.Quaternionf()));
+            });
+        plugin.getServer().getScheduler().runTaskLater(plugin,
+            () -> { if (disp.isValid()) disp.remove(); }, 300L);   // 15 s
     }
 
     /** Glass, stained glass, tinted glass and all their panes - the blocks a
