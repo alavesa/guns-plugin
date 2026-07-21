@@ -6,9 +6,10 @@ api-version: '1.21'
 description: Config-driven custom guns with in-game create/edit, crossbow aiming pose.
 commands:
   guns:
-    description: Gun commands - list, give, create, edit, remove, reload
+    description: Gun commands - list, models, give, create, edit, remove, reload
     usage: |
       /guns list
+      /guns models
       /guns give <id> [player]
       /guns create <id> [gun|grenade|mag]
       /guns edit <id> <stat> <value>

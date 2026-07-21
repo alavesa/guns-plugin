@@ -69,6 +69,35 @@ public final class GunsPlugin extends JavaPlugin {
                         + " | Mags: " + String.join(", ", registry.magIds()), NamedTextColor.GOLD));
                     return true;
                 }
+                case "models" -> {
+                    sender.sendMessage(Component.text("Gun model files to author in the resource pack "
+                        + "(assets/guns/models/item/<name>.json):", NamedTextColor.GOLD));
+                    for (String id : registry.ids()) {
+                        Gun g = registry.get(id);
+                        if (g == null) continue;
+                        String base = g.model();
+                        if (g.isSpyglass()) {
+                            sender.sendMessage(Component.text("  " + id + " -> ", NamedTextColor.GRAY)
+                                .append(Component.text(base, NamedTextColor.AQUA))
+                                .append(Component.text("   (spyglass sniper: no _emptymag / _aim)",
+                                    NamedTextColor.DARK_GRAY)));
+                        } else {
+                            sender.sendMessage(Component.text("  " + id + " -> ", NamedTextColor.GRAY)
+                                .append(Component.text(base, NamedTextColor.AQUA))
+                                .append(Component.text("  /  ", NamedTextColor.DARK_GRAY))
+                                .append(Component.text(base + "_emptymag", NamedTextColor.YELLOW))
+                                .append(Component.text("  /  ", NamedTextColor.DARK_GRAY))
+                                .append(Component.text(base + "_aim", NamedTextColor.GREEN)));
+                        }
+                    }
+                    sender.sendMessage(Component.text("Legend: ", NamedTextColor.DARK_GRAY)
+                        .append(Component.text("base", NamedTextColor.AQUA))
+                        .append(Component.text(" / ", NamedTextColor.DARK_GRAY))
+                        .append(Component.text("empty-mag (out of ammo)", NamedTextColor.YELLOW))
+                        .append(Component.text(" / ", NamedTextColor.DARK_GRAY))
+                        .append(Component.text("aim (ironsights)", NamedTextColor.GREEN)));
+                    return true;
+                }
                 case "give" -> {
                     if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
                     if (args.length < 2) return usage(sender);
@@ -161,7 +190,7 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> filter(Stream.of("list", "give", "create", "edit", "remove", "reload", "firemode"), args[0]);
+            case 1 -> filter(Stream.of("list", "models", "give", "create", "edit", "remove", "reload", "firemode"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")) {
                     yield filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())
