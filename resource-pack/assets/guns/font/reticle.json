@@ -1,0 +1,29 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "guns:font/bracket_left.png",
+      "ascent": 68,
+      "height": 72,
+      "chars": [
+        ""
+      ]
+    },
+    {
+      "type": "bitmap",
+      "file": "guns:font/bracket_right.png",
+      "ascent": 68,
+      "height": 72,
+      "chars": [
+        ""
+      ]
+    },
+    {
+      "type": "space",
+      "advances": {
+        "": 26,
+        "": 8
+      }
+    }
+  ]
+}

@@ -99,6 +99,39 @@ public final class ShootListener implements Listener {
         return aiming.contains(player.getUniqueId());
     }
 
+    // ---- aim reticle -------------------------------------------------------
+    /** guns:reticle font (see resource-pack/tools/gen_reticle.py): two bracket
+     *  glyphs lifted to the crosshair by their ascent, plus wide/narrow spacer
+     *  glyphs that set the gap around the cursor. */
+    private static final net.kyori.adventure.key.Key RETICLE_FONT =
+        net.kyori.adventure.key.Key.key("guns", "reticle");
+    private static final String R_LEFT = "";
+    private static final String R_RIGHT = "";
+    private static final String R_GAP_WIDE = "";     // hip-fire: brackets far out
+    private static final String R_GAP_NARROW = "";   // aiming: brackets close in
+    private final Map<UUID, Long> reticleHideUntil = new ConcurrentHashMap<>();
+
+    /** Briefly hold the reticle back so a transient gun message (fire mode, empty,
+     *  reload...) stays readable before the reticle paints back over the bar. */
+    private void suppressReticle(Player player) {
+        reticleHideUntil.put(player.getUniqueId(), System.currentTimeMillis() + 1600);
+    }
+
+    /** Per-tick: paint the bracket reticle around the crosshair for everyone
+     *  holding a gun - WIDE when hip-firing, TIGHT when aiming. It rides the
+     *  action bar but the font's ascent lifts it up to cursor level, and the
+     *  action bar's centering keeps the brackets symmetric around the cursor. */
+    public void tickReticle() {
+        long now = System.currentTimeMillis();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
+            Long hideUntil = reticleHideUntil.get(player.getUniqueId());
+            if (hideUntil != null && now < hideUntil) continue;   // a message is showing
+            String gap = aiming.contains(player.getUniqueId()) ? R_GAP_NARROW : R_GAP_WIDE;
+            player.sendActionBar(Component.text(R_LEFT + gap + R_RIGHT).font(RETICLE_FONT));
+        }
+    }
+
     /** Crouch = aim (crossbow guns only; the spyglass sniper scopes on right-click). */
     @org.bukkit.event.EventHandler
     public void onSneakAim(org.bukkit.event.player.PlayerToggleSneakEvent event) {
@@ -117,8 +150,7 @@ public final class ShootListener implements Listener {
         player.addPotionEffect(new org.bukkit.potion.PotionEffect(
             org.bukkit.potion.PotionEffectType.SLOWNESS, 20 * 3600, 3, true, false));
         swapHeldModel(player, true);
-        Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ + ]",
-            net.kyori.adventure.text.format.NamedTextColor.GREEN));
+        // the reticle (tickReticle) tightens to the aimed spacing on its own
         player.playSound(player.getLocation(), org.bukkit.Sound.ITEM_SPYGLASS_USE, 0.5f, 1.4f);
     }
 
@@ -126,8 +158,7 @@ public final class ShootListener implements Listener {
         if (!aiming.remove(player.getUniqueId())) return;
         player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
         swapHeldModel(player, false);
-        Msg.actionbar(player, net.kyori.adventure.text.Component.text("[ - ]",
-            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY));
+        // the reticle (tickReticle) widens back to the hip-fire spacing on its own
         player.playSound(player.getLocation(), org.bukkit.Sound.ITEM_SPYGLASS_USE, 0.5f, 1.4f);
     }
 
@@ -359,6 +390,7 @@ public final class ShootListener implements Listener {
         registry.setFireMode(item, next);
         player.getInventory().setItemInMainHand(item);
         Msg.actionbar(player, Component.text("Fire mode: " + next.toUpperCase(), NamedTextColor.GRAY));
+        suppressReticle(player);
         player.playSound(player.getLocation(), "minecraft:block.lever.click", 0.7f, 1.4f);
         ammoBar.update(player, gun, registry.ammoOf(item), next);
     }
@@ -464,6 +496,7 @@ public final class ShootListener implements Listener {
     private void noMagazine(Player player) {
         Msg.actionbar(player, Component.text("No magazine.", NamedTextColor.GRAY)
             .decorate(TextDecoration.ITALIC));
+        suppressReticle(player);
         player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
     }
 
@@ -531,6 +564,7 @@ public final class ShootListener implements Listener {
         if (ammo <= 0) {
             player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
             Msg.actionbar(player, Component.text("Out of ammo - hold right-click to reload", NamedTextColor.RED));
+            suppressReticle(player);
             return;
         }
         registry.setAmmo(item, ammo - 1);
@@ -543,6 +577,7 @@ public final class ShootListener implements Listener {
             showEmptyModel(player, item, gun);
             lendArrowFor(player);
             Msg.actionbar(player, Component.text("Empty - hold right-click to reload", NamedTextColor.YELLOW));
+            suppressReticle(player);
         }
         dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
@@ -695,6 +730,17 @@ public final class ShootListener implements Listener {
             return;
         }
         if (event.getHitBlock() != null) {
+            // Bullets punch through glass: shatter the pane and keep flying, so you
+            // can shoot out a window (or through it at whoever's behind it).
+            org.bukkit.block.Block block = event.getHitBlock();
+            if (isGlass(block.getType())) {
+                block.getWorld().playSound(block.getLocation(), org.bukkit.Sound.BLOCK_GLASS_BREAK, 1f, 1f);
+                block.getWorld().spawnParticle(Particle.BLOCK,
+                    block.getLocation().add(0.5, 0.5, 0.5), 20, 0.25, 0.25, 0.25, 0, block.getBlockData());
+                block.setType(org.bukkit.Material.AIR);
+                event.setCancelled(true);   // don't let the arrow stick - it carries on
+                return;
+            }
             int bounces = pdc.getOrDefault(bulletBouncesKey, PersistentDataType.INTEGER, 0);
             if (bounces > 0 && event.getHitBlockFace() != null && gun != null) {
                 Vector normal = event.getHitBlockFace().getDirection();
@@ -710,6 +756,13 @@ public final class ShootListener implements Listener {
             bullet.remove();
             bullets.remove(bullet.getUniqueId());
         }
+    }
+
+    /** Glass, stained glass, tinted glass and all their panes - the blocks a
+     *  bullet shatters and passes through. */
+    private boolean isGlass(org.bukkit.Material m) {
+        String n = m.name();
+        return n.endsWith("GLASS") || n.endsWith("GLASS_PANE");
     }
 
     private void applyHit(Player shooter, Gun gun, LivingEntity target, Location end) {
@@ -760,9 +813,11 @@ public final class ShootListener implements Listener {
         if (part != null) {
             ((Player) target).sendActionBar(Component.text("You were shot in the " + part + ".",
                 NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
+            suppressReticle((Player) target);   // don't let the victim's reticle eat the message
             if (part.equals("head") && shooter != null) {
                 Msg.actionbar(shooter, Component.text("Headshot.", NamedTextColor.GRAY)
                     .decorate(TextDecoration.ITALIC));
+                suppressReticle(shooter);
             }
         }
         applyEffect(shooter, gun, target);
