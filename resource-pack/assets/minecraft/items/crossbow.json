@@ -44,6 +44,27 @@
           "type": "minecraft:model",
           "model": "guns:item/gun_venom_aim"
         }
+      },
+      {
+        "when": "gun_pistol_emptymag",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/gun_pistol_emptymag"
+        }
+      },
+      {
+        "when": "gun_rifle_emptymag",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/gun_rifle_emptymag"
+        }
+      },
+      {
+        "when": "gun_venom_emptymag",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/gun_venom_emptymag"
+        }
       }
     ],
     "fallback": {

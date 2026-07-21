@@ -16,12 +16,16 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
+import org.bukkit.GameMode;
+import org.bukkit.Material;
+import io.papermc.paper.event.entity.EntityLoadCrossbowEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerSwapHandItemsEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.CrossbowMeta;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -75,6 +79,12 @@ public final class ShootListener implements Listener {
 
     /** The custom_model_data suffix the resource pack dispatches to the ironsights model. */
     private static final String AIM_SUFFIX = "_aim";
+    /** The custom_model_data suffix for the empty-magazine (reloading) model state. */
+    private static final String EMPTY_SUFFIX = "_emptymag";
+
+    /** Players we lent a single arrow to so the client would animate the crossbow
+     *  reload pull; reclaimed when the reload lands (or on quit). */
+    private final Set<UUID> lentArrow = ConcurrentHashMap.newKeySet();
 
     /** Set while a gun's OWN shot damage is being applied, so onPointBlank
      *  doesn't mistake it for a melee swing and cancel it (the 'guns stopped
@@ -125,6 +135,7 @@ public final class ShootListener implements Listener {
     private void swapHeldModel(Player player, boolean aim) {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (registry.gunOf(held) == null) return;
+        if (registry.ammoOf(held) <= 0) return;   // empty gun keeps its _emptymag model
         if (applyModelSuffix(held, aim)) player.getInventory().setItemInMainHand(held);
     }
 
@@ -172,6 +183,7 @@ public final class ShootListener implements Listener {
         // still crouched? the newly drawn crossbow-gun comes up aimed
         Gun nextGun = registry.gunOf(next);
         if (nextGun != null && !nextGun.isSpyglass() && player.isSneaking()
+            && registry.ammoOf(next) > 0   // empty gun stays on its _emptymag model
             && aiming.add(player.getUniqueId())) {
             player.addPotionEffect(new org.bukkit.potion.PotionEffect(
                 org.bukkit.potion.PotionEffectType.SLOWNESS, 20 * 3600, 3, true, false));
@@ -179,6 +191,11 @@ public final class ShootListener implements Listener {
             if (drawn != null && applyModelSuffix(drawn, true)) {
                 player.getInventory().setItem(event.getNewSlot(), drawn);
             }
+        }
+        // no longer holding an empty gun to reload? take our lent round back
+        Gun drawnGun = registry.gunOf(next);
+        if (drawnGun == null || registry.ammoOf(next) > 0) {
+            reclaimLentArrow(player);
         }
     }
 
@@ -200,18 +217,75 @@ public final class ShootListener implements Listener {
             player.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
             swapHeldModel(player, false);
         }
+        reclaimLentArrow(player);
     }
 
-    /** Guns are crossbows whose charged arrow exists only for the aiming
-     *  pose and the charged-state model - if it ever discharged, the model
-     *  and pose broke on that item. Recharge silently. */
+    /** Guns are crossbows whose CHARGED state now mirrors their ammo: a gun with
+     *  rounds left is kept charged (the aiming pose + firing), and an EMPTY gun is
+     *  kept UNCHARGED so that holding right-click plays the crossbow's own reload
+     *  (charging) animation - which is the reload mechanic now. Keeps the two in
+     *  sync whenever a gun is drawn/interacted, self-healing a stuck state. */
     private void repairPose(ItemStack item) {
-        if (item == null || item.getType() != org.bukkit.Material.CROSSBOW) return;
+        if (item == null || item.getType() != Material.CROSSBOW) return;
         if (registry.gunOf(item) == null) return;
-        if (!(item.getItemMeta() instanceof org.bukkit.inventory.meta.CrossbowMeta meta)) return;
-        if (meta.hasChargedProjectiles()) return;
-        meta.addChargedProjectile(new ItemStack(org.bukkit.Material.ARROW));
+        if (!(item.getItemMeta() instanceof CrossbowMeta meta)) return;
+        boolean shouldBeCharged = registry.ammoOf(item) > 0;
+        if (shouldBeCharged && !meta.hasChargedProjectiles()) {
+            meta.addChargedProjectile(new ItemStack(Material.ARROW));
+            item.setItemMeta(meta);
+        } else if (!shouldBeCharged && meta.hasChargedProjectiles()) {
+            meta.setChargedProjectiles(java.util.List.of());
+            item.setItemMeta(meta);
+        }
+    }
+
+    /** Drop a gun crossbow's charged projectile so the client will play the
+     *  natural reload (charging) animation while right-click is held. */
+    private void unchargeGun(ItemStack item) {
+        if (item.getItemMeta() instanceof CrossbowMeta meta && meta.hasChargedProjectiles()) {
+            meta.setChargedProjectiles(java.util.List.of());
+            item.setItemMeta(meta);
+        }
+    }
+
+    /** Set the held gun's model to its empty-magazine variant (shown while reloading). */
+    private void showEmptyModel(Player player, ItemStack item, Gun gun) {
+        setModelString(item, gun.model() + EMPTY_SUFFIX);
+        player.getInventory().setItemInMainHand(item);
+    }
+
+    /** Restore the held gun's model to normal (or ironsights if the player is aiming). */
+    private void showNormalModel(Player player, ItemStack item, Gun gun) {
+        setModelString(item, gun.model() + (aiming.contains(player.getUniqueId()) ? AIM_SUFFIX : ""));
+        player.getInventory().setItemInMainHand(item);
+    }
+
+    private void setModelString(ItemStack item, String model) {
+        var meta = item.getItemMeta();
+        if (meta == null) return;
+        var cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(java.util.List.of(model));
+        meta.setCustomModelDataComponent(cmd);
         item.setItemMeta(meta);
+    }
+
+    /** The client only animates the crossbow pull if it thinks there's ammo to
+     *  load. Lend the player one arrow (tracked, reclaimed on reload/quit) if they
+     *  have none, so an empty gun still reloads with the real animation. Creative
+     *  charges without ammo, so no loan there. */
+    private void lendArrowFor(Player player) {
+        if (player.getGameMode() == GameMode.CREATIVE) return;
+        if (player.getInventory().contains(Material.ARROW)) return;
+        player.getInventory().addItem(new ItemStack(Material.ARROW));
+        lentArrow.add(player.getUniqueId());
+    }
+
+    /** Take back the arrow we lent (if any) - the reload consumes a MAGAZINE, not
+     *  arrows, so the loaned round must never linger or be spent. */
+    private void reclaimLentArrow(Player player) {
+        if (lentArrow.remove(player.getUniqueId())) {
+            player.getInventory().removeItem(new ItemStack(Material.ARROW, 1));
+        }
     }
 
     /** Right click fires crossbow guns; their left click is cancelled and does
@@ -229,15 +303,27 @@ public final class ShootListener implements Listener {
         if (gun == null) return;
         repairPose(item);
         if (gun.isSpyglass()) return; // right scopes (vanilla), left fires via onSwing
+        Player player = event.getPlayer();
         // crossbow gun: no vanilla behavior ever - right fires, LEFT switches the
         // fire mode (semi <-> auto) with no command to type.
-        event.setCancelled(true);
         if (right) {
+            if (registry.ammoOf(item) <= 0) {
+                // EMPTY: the reload. Do NOT cancel - the uncharged crossbow plays
+                // its own charging animation while right-click is held (the same
+                // button you fire with). onCrossbowLoad finishes the reload when
+                // the pull completes. Show the empty-mag model + lend a round so
+                // the client actually animates.
+                showEmptyModel(player, item, gun);
+                lendArrowFor(player);
+                return;
+            }
+            event.setCancelled(true);
             // AUTO: hold right-click to keep firing; SEMI: one shot per click.
-            if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(event.getPlayer(), gun);
-            else shoot(event.getPlayer(), gun, item);
+            if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(player, gun);
+            else shoot(player, gun, item);
         } else if (left) {
-            toggleMode(event.getPlayer(), gun, item);
+            event.setCancelled(true);
+            toggleMode(player, gun, item);
         }
     }
 
@@ -292,7 +378,8 @@ public final class ShootListener implements Listener {
                 ItemStack held = player.getInventory().getItemInMainHand();
                 Gun g = registry.gunOf(held);
                 if (!player.isOnline() || g == null || !g.id().equals(gun.id())
-                    || !"auto".equals(registry.fireModeOf(held, g)) || !player.isHandRaised()) {
+                    || !"auto".equals(registry.fireModeOf(held, g)) || !player.isHandRaised()
+                    || registry.ammoOf(held) <= 0) {   // empty: stop so the player can reload
                     autoFiring.remove(id);
                     cancel();
                     return;
@@ -310,48 +397,58 @@ public final class ShootListener implements Listener {
         }
     }
 
+    /** F (swap-hands) no longer reloads - reloading is holding right-click now. We
+     *  still swallow the swap so a gun never lands in the off-hand. */
     @EventHandler
-    public void onReload(PlayerSwapHandItemsEvent event) {
-        Player player = event.getPlayer();
-        ItemStack item = player.getInventory().getItemInMainHand();
+    public void onSwapHands(PlayerSwapHandItemsEvent event) {
+        if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null
+            || registry.gunOf(event.getOffHandItem()) != null) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * The reload lands here: an EMPTY gun crossbow, held with right-click, plays
+     * its natural charging animation and fires this event when the pull completes.
+     * We turn that finished charge into "magazine loaded": consume one mag (if the
+     * gun uses mags), refill the ammo, restore the normal model, and never consume
+     * a real arrow (the loaded round is virtual - guns feed on magazines).
+     */
+    @EventHandler
+    public void onCrossbowLoad(EntityLoadCrossbowEvent event) {
+        if (!(event.getEntity() instanceof Player player)) return;
+        ItemStack item = event.getCrossbow();
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
-        event.setCancelled(true);
-        if (reloading.contains(player.getUniqueId())) return;
-        if (registry.ammoOf(item) >= gun.magazine()) {
-            Msg.actionbar(player, Component.text("Magazine full", NamedTextColor.GRAY));
-            return;
-        }
+        // A full gun is charged and can't be re-loaded; only an empty one reloads.
+        if (registry.ammoOf(item) > 0) { event.setCancelled(true); return; }
+        // Needs a magazine we don't have? Refuse the reload (the animation may have
+        // played off the player's own arrows, but nothing loads without a mag).
         if (gun.requiresMag() && findMagSlot(player, gun.magId()) == -1) {
+            event.setCancelled(true);
             noMagazine(player);
             return;
         }
-        reloading.add(player.getUniqueId());
-        Msg.actionbar(player, Component.text("Reloading...", NamedTextColor.YELLOW));
-        player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_middle", 1f, 1f);
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            reloading.remove(player.getUniqueId());
+        event.setConsumeItem(false);   // magazines feed the gun, never real arrows
+        if (gun.requiresMag()) {
+            int slot = findMagSlot(player, gun.magId());
+            ItemStack magItem = player.getInventory().getItem(slot);
+            if (magItem.getAmount() <= 1) player.getInventory().setItem(slot, null);
+            else magItem.setAmount(magItem.getAmount() - 1);
+        }
+        reclaimLentArrow(player);
+        // Apply the refill next tick, after vanilla has finished charging the
+        // crossbow (so the charged state - our "full gun" - and the ammo agree).
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (!player.isOnline()) return;
             ItemStack now = player.getInventory().getItemInMainHand();
             Gun held = registry.gunOf(now);
-            if (held == null || !held.id().equals(gun.id())) return; // switched items mid-reload
-            if (held.requiresMag()) {
-                // Re-find the mag: it may have been dropped/moved during the reload timer.
-                int slot = findMagSlot(player, held.magId());
-                if (slot == -1) {
-                    noMagazine(player);
-                    return;
-                }
-                // One mag = a full gun, whatever the mag's cosmetic capacity number says.
-                ItemStack magItem = player.getInventory().getItem(slot);
-                if (magItem.getAmount() <= 1) player.getInventory().setItem(slot, null);
-                else magItem.setAmount(magItem.getAmount() - 1);
-            }
+            if (held == null || !held.id().equals(gun.id())) return;
             registry.setAmmo(now, held.magazine());
-            player.getInventory().setItemInMainHand(now);
+            showNormalModel(player, now, held);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
             ammoBar.update(player, held, held.magazine(), registry.fireModeOf(now, held));
-        }, gun.reloadTicks());
+        });
     }
 
     /** First inventory slot holding a mag of this type, or -1. */
@@ -433,11 +530,20 @@ public final class ShootListener implements Listener {
         int ammo = registry.ammoOf(item);
         if (ammo <= 0) {
             player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
-            Msg.actionbar(player, Component.text("Out of ammo - press F to reload", NamedTextColor.RED));
+            Msg.actionbar(player, Component.text("Out of ammo - hold right-click to reload", NamedTextColor.RED));
             return;
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
+        if (ammo - 1 <= 0) {
+            // that was the last round: uncharge so holding right-click plays the
+            // crossbow reload animation, show the empty-mag model, and lend a round
+            // so the client animates the pull.
+            unchargeGun(item);
+            showEmptyModel(player, item, gun);
+            lendArrowFor(player);
+            Msg.actionbar(player, Component.text("Empty - hold right-click to reload", NamedTextColor.YELLOW));
+        }
         dipHand(player); // the knife trick: the item dips instead of punching
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
