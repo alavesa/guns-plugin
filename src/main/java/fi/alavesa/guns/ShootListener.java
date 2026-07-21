@@ -392,7 +392,7 @@ public final class ShootListener implements Listener {
         Msg.actionbar(player, Component.text("Fire mode: " + next.toUpperCase(), NamedTextColor.GRAY));
         suppressReticle(player);
         player.playSound(player.getLocation(), "minecraft:block.lever.click", 0.7f, 1.4f);
-        ammoBar.update(player, gun, registry.ammoOf(item), next);
+        ammoBar.update(player, gun, registry.ammoOf(item), next, reserveRounds(player, gun));
     }
 
     /** Players currently auto-firing (one repeating task each). */
@@ -429,14 +429,60 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** F (swap-hands) no longer reloads - reloading is holding right-click now. We
-     *  still swallow the swap so a gun never lands in the off-hand. */
+    /**
+     * F (swap-hands) = MANUAL reload. Unlike the empty auto-reload (hold right-
+     * click), this works with rounds STILL in the gun: those leftover rounds are
+     * banked into your reserve pool (never lost) and a fresh full mag is loaded -
+     * full mags first, the banked leftovers spent last. The swap itself is always
+     * cancelled so a gun never lands in the off-hand.
+     */
     @EventHandler
-    public void onSwapHands(PlayerSwapHandItemsEvent event) {
-        if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null
-            || registry.gunOf(event.getOffHandItem()) != null) {
-            event.setCancelled(true);
+    public void onManualReload(PlayerSwapHandItemsEvent event) {
+        Player player = event.getPlayer();
+        ItemStack item = player.getInventory().getItemInMainHand();
+        Gun gun = registry.gunOf(item);
+        if (gun != null || registry.gunOf(event.getOffHandItem()) != null) {
+            event.setCancelled(true);   // never swap a gun to the off-hand
         }
+        if (gun == null) return;
+        UUID id = player.getUniqueId();
+        if (reloading.contains(id)) return;
+        if (registry.ammoOf(item) >= gun.magazine()) {
+            Msg.actionbar(player, Component.text("Magazine full", NamedTextColor.GRAY));
+            suppressReticle(player);
+            return;
+        }
+        boolean hasSource = !gun.requiresMag()
+            || findMagSlot(player, gun.magId()) != -1
+            || leftoverPool(player, gun.magId()) > 0;
+        if (!hasSource) { noMagazine(player); return; }
+        reloading.add(id);
+        showEmptyModel(player, item, gun);   // the reloading look
+        player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_start", 1f, 1f);
+        Msg.actionbar(player, Component.text("Reloading...", NamedTextColor.YELLOW));
+        suppressReticle(player);
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            reloading.remove(id);
+            if (!player.isOnline()) return;
+            ItemStack now = player.getInventory().getItemInMainHand();
+            Gun held = registry.gunOf(now);
+            if (held == null || !held.id().equals(gun.id())) { return; }
+            int leftover = registry.ammoOf(now);
+            int poolBefore = held.requiresMag() ? leftoverPool(player, held.magId()) : 0;
+            // bank the leftover FIRST so a fuller reload can draw on it if needed
+            if (leftover > 0 && held.requiresMag()) setLeftoverPool(player, held.magId(), poolBefore + leftover);
+            int load = drawReload(player, held);
+            if (load < 0) {                                   // source vanished mid-reload
+                if (held.requiresMag()) setLeftoverPool(player, held.magId(), poolBefore);   // roll back
+                showNormalModel(player, now, held);
+                return;
+            }
+            registry.setAmmo(now, load);
+            repairPose(now);                                  // load > 0 -> re-charge (pose + fire)
+            showNormalModel(player, now, held);
+            player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
+            ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
+        }, Math.max(10L, gun.reloadTicks()));
     }
 
     /**
@@ -454,20 +500,15 @@ public final class ShootListener implements Listener {
         if (gun == null) return;
         // A full gun is charged and can't be re-loaded; only an empty one reloads.
         if (registry.ammoOf(item) > 0) { event.setCancelled(true); return; }
-        // Needs a magazine we don't have? Refuse the reload (the animation may have
-        // played off the player's own arrows, but nothing loads without a mag).
-        if (gun.requiresMag() && findMagSlot(player, gun.magId()) == -1) {
+        // Draw the next load: a fresh full mag if we have one, else the banked
+        // leftover pool - and nothing at all means refuse the reload.
+        int load = drawReload(player, gun);
+        if (load < 0) {
             event.setCancelled(true);
             noMagazine(player);
             return;
         }
         event.setConsumeItem(false);   // magazines feed the gun, never real arrows
-        if (gun.requiresMag()) {
-            int slot = findMagSlot(player, gun.magId());
-            ItemStack magItem = player.getInventory().getItem(slot);
-            if (magItem.getAmount() <= 1) player.getInventory().setItem(slot, null);
-            else magItem.setAmount(magItem.getAmount() - 1);
-        }
         reclaimLentArrow(player);
         // Apply the refill next tick, after vanilla has finished charging the
         // crossbow (so the charged state - our "full gun" - and the ammo agree).
@@ -476,10 +517,10 @@ public final class ShootListener implements Listener {
             ItemStack now = player.getInventory().getItemInMainHand();
             Gun held = registry.gunOf(now);
             if (held == null || !held.id().equals(gun.id())) return;
-            registry.setAmmo(now, held.magazine());
+            registry.setAmmo(now, load);
             showNormalModel(player, now, held);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
-            ammoBar.update(player, held, held.magazine(), registry.fireModeOf(now, held));
+            ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
         });
     }
 
@@ -490,6 +531,56 @@ public final class ShootListener implements Listener {
             if (magId.equals(registry.magIdOf(inv.getItem(i)))) return i;
         }
         return -1;
+    }
+
+    // ---- reserve ammo: full mags + a per-player "leftover" pool -------------
+    // Reloading with rounds still in the gun BANKS those rounds into a per-player
+    // pool (per mag type) instead of losing them - and the pool is only ever spent
+    // AFTER every full mag is gone, so the partial reloads are your LAST rounds.
+    // The mags never change: they stay identical and fully stackable; the leftovers
+    // live on the player (PDC), not on the item.
+
+    private NamespacedKey leftoverKey(String magId) {
+        return new NamespacedKey(plugin, "leftover_" + magId.toLowerCase(java.util.Locale.ROOT));
+    }
+    private int leftoverPool(Player p, String magId) {
+        return p.getPersistentDataContainer().getOrDefault(leftoverKey(magId), PersistentDataType.INTEGER, 0);
+    }
+    private void setLeftoverPool(Player p, String magId, int v) {
+        p.getPersistentDataContainer().set(leftoverKey(magId), PersistentDataType.INTEGER, Math.max(0, v));
+    }
+
+    /** How many rounds the NEXT load gives, consuming the source: a fresh full mag
+     *  if the inventory has one, else the banked leftover pool (drawn down) so the
+     *  partial reloads are spent LAST. Returns -1 if there's nothing to reload with. */
+    private int drawReload(Player player, Gun gun) {
+        if (!gun.requiresMag()) return gun.magazine();   // loose-round guns top up full
+        int slot = findMagSlot(player, gun.magId());
+        if (slot != -1) {
+            ItemStack magItem = player.getInventory().getItem(slot);
+            if (magItem.getAmount() <= 1) player.getInventory().setItem(slot, null);
+            else magItem.setAmount(magItem.getAmount() - 1);
+            return gun.magazine();
+        }
+        int pool = leftoverPool(player, gun.magId());
+        if (pool > 0) {
+            int load = Math.min(gun.magazine(), pool);
+            setLeftoverPool(player, gun.magId(), pool - load);
+            return load;
+        }
+        return -1;
+    }
+
+    /** Spare rounds not currently loaded: full mags x capacity + the leftover pool. */
+    public int reserveRounds(Player player, Gun gun) {
+        if (!gun.requiresMag()) return 0;
+        int mags = 0;
+        var inv = player.getInventory();
+        for (int i = 0; i < inv.getSize(); i++) {
+            ItemStack it = inv.getItem(i);
+            if (gun.magId().equals(registry.magIdOf(it))) mags += it.getAmount();
+        }
+        return mags * gun.magazine() + leftoverPool(player, gun.magId());
     }
 
     /** Reload refused: dry click, nothing to feed the gun with. */
@@ -608,7 +699,7 @@ public final class ShootListener implements Listener {
         pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, gun.ricochet());
         pdc.set(bulletBornKey, PersistentDataType.LONG, System.currentTimeMillis());
         bullets.add(bullet.getUniqueId());
-        ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun));
+        ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
 
         // Camera recoil LAST, and defensively: kick the view UP by the gun's recoil
         // via a RELATIVE teleport (only pitch absolute; x/y/z/yaw relative deltas of
@@ -734,11 +825,21 @@ public final class ShootListener implements Listener {
             // can shoot out a window (or through it at whoever's behind it).
             org.bukkit.block.Block block = event.getHitBlock();
             if (isGlass(block.getType())) {
-                block.getWorld().playSound(block.getLocation(), org.bukkit.Sound.BLOCK_GLASS_BREAK, 1f, 1f);
+                final org.bukkit.block.data.BlockData data = block.getBlockData();   // remember the exact pane
+                final Location loc = block.getLocation();
+                block.getWorld().playSound(loc, org.bukkit.Sound.BLOCK_GLASS_BREAK, 1f, 1f);
                 block.getWorld().spawnParticle(Particle.BLOCK,
-                    block.getLocation().add(0.5, 0.5, 0.5), 20, 0.25, 0.25, 0.25, 0, block.getBlockData());
+                    loc.clone().add(0.5, 0.5, 0.5), 20, 0.25, 0.25, 0.25, 0, data);
                 block.setType(org.bukkit.Material.AIR);
                 event.setCancelled(true);   // don't let the arrow stick - it carries on
+                // respawn the shattered glass after 2 minutes, but only if nothing
+                // else has taken the space in the meantime
+                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                    if (loc.getBlock().getType() == org.bukkit.Material.AIR) {
+                        loc.getBlock().setBlockData(data);
+                        loc.getWorld().playSound(loc, org.bukkit.Sound.BLOCK_GLASS_PLACE, 0.7f, 1.2f);
+                    }
+                }, 2400L);   // 120s
                 return;
             }
             int bounces = pdc.getOrDefault(bulletBouncesKey, PersistentDataType.INTEGER, 0);

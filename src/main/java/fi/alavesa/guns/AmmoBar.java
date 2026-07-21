@@ -28,6 +28,12 @@ public final class AmmoBar {
     private final Map<UUID, BossBar> bars = new ConcurrentHashMap<>();
 
     public void update(Player player, Gun gun, int ammo, String mode) {
+        update(player, gun, ammo, mode, -1);
+    }
+
+    /** reserve = spare rounds not loaded (full mags x capacity + the leftover pool);
+     *  pass -1 to hide the reserve readout. */
+    public void update(Player player, Gun gun, int ammo, String mode, int reserve) {
         int mag = Math.max(1, gun.magazine());
         float fraction = Math.max(0f, Math.min(1f, ammo / (float) mag));
         BossBar.Color color = fraction > 0.5f ? BossBar.Color.GREEN
@@ -45,6 +51,10 @@ public final class AmmoBar {
             .append(bullets)
             .append(Component.text("  " + ammo + " / " + mag,
                 ammo == 0 ? NamedTextColor.RED : NamedTextColor.WHITE));
+        if (reserve >= 0) {
+            title = title.append(Component.text("  (+" + reserve + ")",
+                reserve == 0 ? NamedTextColor.DARK_GRAY : NamedTextColor.GRAY));
+        }
         if (mode != null && gun.modes().size() > 1) {
             title = title.append(Component.text("  [" + mode.toUpperCase() + "]",
                 NamedTextColor.GRAY));

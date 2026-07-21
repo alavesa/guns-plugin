@@ -46,7 +46,8 @@ public final class GunsPlugin extends JavaPlugin {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
                 if (gun != null) {
-                    ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun));
+                    ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
+                        shootListener.reserveRounds(player, gun));
                 } else {
                     ammoBar.hide(player);
                 }
