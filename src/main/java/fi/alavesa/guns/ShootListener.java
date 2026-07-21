@@ -430,14 +430,16 @@ public final class ShootListener implements Listener {
     }
 
     /**
-     * F (swap-hands) = MANUAL reload. Unlike the empty auto-reload (hold right-
-     * click), this works with rounds STILL in the gun: those leftover rounds are
-     * banked into your reserve pool (never lost) and a fresh full mag is loaded -
-     * full mags first, the banked leftovers spent last. The swap itself is always
-     * cancelled so a gun never lands in the off-hand.
+     * F (swap-hands) = EJECT THE MAGAZINE. It does NOT reload - it just drops the
+     * current mag out of the gun, leaving it empty. The rounds that were still in
+     * it are BANKED into your reserve pool (never lost, spent last), and the mags
+     * themselves stay identical/stackable because the leftovers live on the player,
+     * not the item. Reloading is a separate action: hold right-click to play the
+     * crossbow animation and load a fresh mag. The swap is always cancelled so a
+     * gun never lands in the off-hand.
      */
     @EventHandler
-    public void onManualReload(PlayerSwapHandItemsEvent event) {
+    public void onEjectMag(PlayerSwapHandItemsEvent event) {
         Player player = event.getPlayer();
         ItemStack item = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
@@ -445,44 +447,26 @@ public final class ShootListener implements Listener {
             event.setCancelled(true);   // never swap a gun to the off-hand
         }
         if (gun == null) return;
-        UUID id = player.getUniqueId();
-        if (reloading.contains(id)) return;
-        if (registry.ammoOf(item) >= gun.magazine()) {
-            Msg.actionbar(player, Component.text("Magazine full", NamedTextColor.GRAY));
+        if (registry.ammoOf(item) <= 0) {
+            // nothing loaded to eject - just remind them how to reload
+            Msg.actionbar(player, Component.text("Empty - hold right-click to reload", NamedTextColor.YELLOW));
             suppressReticle(player);
             return;
         }
-        boolean hasSource = !gun.requiresMag()
-            || findMagSlot(player, gun.magId()) != -1
-            || leftoverPool(player, gun.magId()) > 0;
-        if (!hasSource) { noMagazine(player); return; }
-        reloading.add(id);
-        showEmptyModel(player, item, gun);   // the reloading look
-        player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_start", 1f, 1f);
-        Msg.actionbar(player, Component.text("Reloading...", NamedTextColor.YELLOW));
+        // bank the rounds still in the gun (so they're not lost, and spent last),
+        // then leave the gun EMPTY and ready for the hold-right-click reload.
+        int leftover = registry.ammoOf(item);
+        if (gun.requiresMag()) {
+            setLeftoverPool(player, gun.magId(), leftoverPool(player, gun.magId()) + leftover);
+        }
+        registry.setAmmo(item, 0);
+        unchargeGun(item);                 // uncharged crossbow -> right-click plays the reload pull
+        showEmptyModel(player, item, gun); // the empty/no-mag model
+        lendArrowFor(player);              // so the client animates the pull
+        player.getWorld().playSound(player.getLocation(), "minecraft:block.iron_trapdoor.open", 0.7f, 1.6f);
+        Msg.actionbar(player, Component.text("Magazine out - hold right-click to reload", NamedTextColor.YELLOW));
         suppressReticle(player);
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            reloading.remove(id);
-            if (!player.isOnline()) return;
-            ItemStack now = player.getInventory().getItemInMainHand();
-            Gun held = registry.gunOf(now);
-            if (held == null || !held.id().equals(gun.id())) { return; }
-            int leftover = registry.ammoOf(now);
-            int poolBefore = held.requiresMag() ? leftoverPool(player, held.magId()) : 0;
-            // bank the leftover FIRST so a fuller reload can draw on it if needed
-            if (leftover > 0 && held.requiresMag()) setLeftoverPool(player, held.magId(), poolBefore + leftover);
-            int load = drawReload(player, held);
-            if (load < 0) {                                   // source vanished mid-reload
-                if (held.requiresMag()) setLeftoverPool(player, held.magId(), poolBefore);   // roll back
-                showNormalModel(player, now, held);
-                return;
-            }
-            registry.setAmmo(now, load);
-            repairPose(now);                                  // load > 0 -> re-charge (pose + fire)
-            showNormalModel(player, now, held);
-            player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
-            ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
-        }, Math.max(10L, gun.reloadTicks()));
+        ammoBar.update(player, gun, 0, registry.fireModeOf(item, gun), reserveRounds(player, gun));
     }
 
     /**

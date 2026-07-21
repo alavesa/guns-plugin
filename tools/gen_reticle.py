@@ -26,8 +26,8 @@ Run from the repo root:  python3 tools/gen_reticle.py
 """
 import json, os, struct, zlib
 
-LIFT = 68          # ascent: how high above the action-bar line the brackets sit
-CANVAS_H = 72      # tall transparent canvas so the brackets can be lifted
+LIFT = 170         # ascent: how high above the action-bar line the brackets sit
+CANVAS_H = 176     # tall transparent canvas so the brackets can be lifted
 WIDE = 26          # hip-fire gap (px)
 NARROW = 8         # aimed gap (px)
 
