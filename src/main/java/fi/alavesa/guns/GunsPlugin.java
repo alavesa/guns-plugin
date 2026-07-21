@@ -98,6 +98,29 @@ public final class GunsPlugin extends JavaPlugin {
                         .append(Component.text("aim (ironsights)", NamedTextColor.GREEN)));
                     return true;
                 }
+                case "rename" -> {
+                    if (!(sender instanceof Player player)) return error(sender, "Players only.");
+                    if (!sender.hasPermission("guns.use")) return error(sender, "No permission.");
+                    if (args.length < 2) {
+                        return error(sender, "/guns rename <new name>  (renames the gun in your hand; & colours ok)");
+                    }
+                    org.bukkit.inventory.ItemStack held = player.getInventory().getItemInMainHand();
+                    Gun gun = registry.gunOf(held);
+                    if (gun == null) return error(sender, "Hold the gun you want to rename.");
+                    String name = String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length));
+                    var meta = held.getItemMeta();
+                    meta.itemName(net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
+                        .legacyAmpersand().deserialize(name)
+                        .decoration(net.kyori.adventure.text.format.TextDecoration.ITALIC, false));
+                    held.setItemMeta(meta);
+                    player.getInventory().setItemInMainHand(held);
+                    // id, ammo count and model (custom_model_data) are all untouched, so the
+                    // gun stays a gun, keeps its loaded rounds/mag compatibility, and still
+                    // resolves its <model> / <model>_emptymag / <model>_aim states.
+                    sender.sendMessage(Component.text("Renamed. Ammo, mags and the model states "
+                        + "(incl. empty-mag) are all unchanged.", NamedTextColor.GRAY));
+                    return true;
+                }
                 case "give" -> {
                     if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
                     if (args.length < 2) return usage(sender);

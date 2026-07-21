@@ -127,8 +127,13 @@ public final class ShootListener implements Listener {
             if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
             Long hideUntil = reticleHideUntil.get(player.getUniqueId());
             if (hideUntil != null && now < hideUntil) continue;   // a message is showing
-            String gap = aiming.contains(player.getUniqueId()) ? R_GAP_NARROW : R_GAP_WIDE;
-            player.sendActionBar(Component.text(R_LEFT + gap + R_RIGHT).font(RETICLE_FONT));
+            boolean aim = aiming.contains(player.getUniqueId());
+            String gap = aim ? R_GAP_NARROW : R_GAP_WIDE;
+            // width = two bracket advances (~13 each) + the gap advance (see gen_reticle.py:
+            // WIDE=26, NARROW=8), so the hub can center it on the crosshair
+            int width = 26 + (aim ? 8 : 26);
+            Component glyph = Component.text(R_LEFT + gap + R_RIGHT).font(RETICLE_FONT);
+            Msg.reticle(player, glyph, width);
         }
     }
 
