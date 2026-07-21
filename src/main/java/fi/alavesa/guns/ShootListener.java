@@ -66,6 +66,8 @@ public final class ShootListener implements Listener {
         this.bulletShooterKey = new NamespacedKey(plugin, "bullet_shooter");
         this.bulletBouncesKey = new NamespacedKey(plugin, "bullet_bounces");
         this.bulletBornKey = new NamespacedKey(plugin, "bullet_born");
+        this.gunAttackerKey = new NamespacedKey(plugin, "gun_attacker");
+        this.gunAttackerAtKey = new NamespacedKey(plugin, "gun_attacker_at");
         this.registry = registry;
         this.ammoBar = ammoBar;
     }
@@ -736,6 +738,10 @@ public final class ShootListener implements Listener {
     private final NamespacedKey bulletShooterKey;
     private final NamespacedKey bulletBouncesKey;
     private final NamespacedKey bulletBornKey;
+    /** Stamped on a player victim (shooter UUID + when) so gun kills credit the
+     *  shooter in stats even when the killing blow is source-less (PvP off). */
+    private final NamespacedKey gunAttackerKey;
+    private final NamespacedKey gunAttackerAtKey;
     private final java.util.Set<java.util.UUID> bullets = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private static final long BULLET_LIFETIME_MS = 5000;
 
@@ -875,6 +881,15 @@ public final class ShootListener implements Listener {
         // would otherwise apply attack knockback). Damage still lands in full.
         Vector preHit = target.getVelocity();
         double hpBefore = target.getHealth();
+        // Credit gun KILLS in the menu stats even when PvP is off: that path lands
+        // as source-less damage below, so the death's getKiller() is null. Stamp the
+        // shooter + timestamp on the victim; Facility's StatsListener reads it on
+        // death and credits the kill (keys are the shared "guns:" namespace).
+        if (target instanceof Player victimPlayer && shooter != null) {
+            var vpdc = victimPlayer.getPersistentDataContainer();
+            vpdc.set(gunAttackerKey, PersistentDataType.STRING, shooter.getUniqueId().toString());
+            vpdc.set(gunAttackerAtKey, PersistentDataType.LONG, System.currentTimeMillis());
+        }
         if (shooter != null) {
             recentGunHit.put(shooter.getUniqueId(), System.currentTimeMillis());
             firing.add(shooter.getUniqueId());
