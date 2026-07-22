@@ -872,9 +872,11 @@ public final class ShootListener implements Listener {
             org.bukkit.entity.ItemDisplay.class, d -> {
                 d.setItemStack(holeItem);
                 d.setBillboard(org.bukkit.entity.Display.Billboard.FIXED);
-                d.setBrightness(new org.bukkit.entity.Display.Brightness(15, 15));
+                // NO fixed brightness: the decal is lit dynamically by the light at the
+                // wall, so it sits in shadow in a dark room and brightens under lights.
                 d.setViewRange(0.5f);   // only visible up close
-                // align the flat sprite (+Z) to the wall's outward normal
+                // full X/Y/Z orientation: align the flat sprite (+Z) to the struck
+                // face's outward normal, so it lies flush on walls, floors and ceilings
                 org.joml.Quaternionf rot = new org.joml.Quaternionf().rotationTo(
                     0f, 0f, 1f, (float) n.getX(), (float) n.getY(), (float) n.getZ());
                 d.setTransformation(new org.bukkit.util.Transformation(
