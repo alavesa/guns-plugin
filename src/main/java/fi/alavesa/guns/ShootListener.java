@@ -849,7 +849,7 @@ public final class ShootListener implements Listener {
                 return;
             }
             bullet.getWorld().spawnParticle(Particle.SMOKE, bullet.getLocation(), 3, 0.05, 0.05, 0.05, 0.01);
-            spawnBulletHole(bullet.getLocation(), event.getHitBlockFace());
+            spawnBulletHole(event.getHitBlock(), bullet.getLocation(), event.getHitBlockFace());
             bullet.remove();
             bullets.remove(bullet.getUniqueId());
         }
@@ -858,30 +858,44 @@ public final class ShootListener implements Listener {
     /** Leave a small bullet-hole decal on the wall a bullet stopped against - an
      *  ItemDisplay of the guns:bullet_hole sprite, laid flat on the struck face and
      *  removed after 15 seconds. */
-    private void spawnBulletHole(Location hit, org.bukkit.block.BlockFace face) {
-        if (face == null || hit.getWorld() == null) return;
+    private void spawnBulletHole(org.bukkit.block.Block wall, Location hit, org.bukkit.block.BlockFace face) {
+        if (face == null || wall == null || wall.getWorld() == null) return;
         Vector n = face.getDirection();
-        Location loc = hit.clone().add(n.clone().multiply(0.02));   // just off the surface
+        // Pin the decal exactly onto the struck FACE PLANE at the hit point, so it
+        // lies on the surface instead of floating or sinking into the block.
+        double px = hit.getX(), py = hit.getY(), pz = hit.getZ();
+        switch (face) {
+            case UP -> py = wall.getY() + 1.0;
+            case DOWN -> py = wall.getY();
+            case NORTH -> pz = wall.getZ();
+            case SOUTH -> pz = wall.getZ() + 1.0;
+            case WEST -> px = wall.getX();
+            case EAST -> px = wall.getX() + 1.0;
+            default -> { }
+        }
+        Location loc = new Location(wall.getWorld(), px, py, pz).add(n.clone().multiply(0.015));
         ItemStack holeItem = new ItemStack(org.bukkit.Material.FLINT);
         var meta = holeItem.getItemMeta();
         var cmd = meta.getCustomModelDataComponent();
         cmd.setStrings(java.util.List.of("bullet_hole"));
         meta.setCustomModelDataComponent(cmd);
         holeItem.setItemMeta(meta);
-        org.bukkit.entity.ItemDisplay disp = hit.getWorld().spawn(loc,
+        org.bukkit.entity.ItemDisplay disp = wall.getWorld().spawn(loc,
             org.bukkit.entity.ItemDisplay.class, d -> {
                 d.setItemStack(holeItem);
+                // FIXED = the item-frame context: the flat item is centred and faces
+                // outward, exactly like a picture on a wall - the right base for a decal.
+                d.setItemDisplayTransform(org.bukkit.entity.ItemDisplay.ItemDisplayTransform.FIXED);
                 d.setBillboard(org.bukkit.entity.Display.Billboard.FIXED);
-                // NO fixed brightness: the decal is lit dynamically by the light at the
-                // wall, so it sits in shadow in a dark room and brightens under lights.
-                d.setViewRange(0.5f);   // only visible up close
-                // full X/Y/Z orientation: align the flat sprite (+Z) to the struck
-                // face's outward normal, so it lies flush on walls, floors and ceilings
+                d.setViewRange(0.5f);   // only visible up close; dynamic light (no fixed brightness)
+                // Orient the sprite's face (+Z) to the wall normal, and SQUASH the
+                // model's depth to ~0 so the extruded item becomes a flat sheet lying
+                // flush on the surface - no 3D lump poking through the wall.
                 org.joml.Quaternionf rot = new org.joml.Quaternionf().rotationTo(
                     0f, 0f, 1f, (float) n.getX(), (float) n.getY(), (float) n.getZ());
                 d.setTransformation(new org.bukkit.util.Transformation(
                     new org.joml.Vector3f(0f, 0f, 0f), rot,
-                    new org.joml.Vector3f(0.35f, 0.35f, 0.35f), new org.joml.Quaternionf()));
+                    new org.joml.Vector3f(0.3f, 0.3f, 0.02f), new org.joml.Quaternionf()));
             });
         plugin.getServer().getScheduler().runTaskLater(plugin,
             () -> { if (disp.isValid()) disp.remove(); }, 300L);   // 15 s
