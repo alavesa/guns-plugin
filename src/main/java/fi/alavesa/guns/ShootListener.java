@@ -674,6 +674,35 @@ public final class ShootListener implements Listener {
                 Math.toRadians(rng.nextGaussian() * spread * 0.5));
         }
         Vector velocity = dir.normalize().multiply(gun.speed());
+
+        // POINT-BLANK: the round spawns 0.6 blocks down the barrel, so a wall or an
+        // enemy closer than that would have the arrow appear INSIDE/behind it and hit
+        // nothing (bullet negated, no mark). Ray-trace the muzzle clearance and, if
+        // something's right there, resolve the hit here (hitscan) instead of spawning
+        // an arrow that clips. Glass is shattered and the shot still spawns to carry on.
+        Location eye = player.getEyeLocation();
+        RayTraceResult pb = player.getWorld().rayTrace(eye, dir, 1.2,
+            FluidCollisionMode.NEVER, true, 0.3,
+            e -> e instanceof LivingEntity && e != player && !bullets.contains(e.getUniqueId()));
+        if (pb != null) {
+            if (pb.getHitEntity() instanceof LivingEntity target) {
+                applyHit(player, gun, target, pb.getHitPosition().toLocation(player.getWorld()));
+                applyRecoil(player, gun);
+                return;
+            }
+            if (pb.getHitBlock() != null) {
+                org.bukkit.block.Block b = pb.getHitBlock();
+                if (isGlass(b.getType())) {
+                    shatterGlass(b);   // break it point-blank; the arrow below carries on
+                } else {
+                    Location mark = pb.getHitPosition().toLocation(player.getWorld());
+                    player.getWorld().spawnParticle(Particle.SMOKE, mark, 3, 0.05, 0.05, 0.05, 0.01);
+                    spawnBulletHole(b, mark, pb.getHitBlockFace());
+                    applyRecoil(player, gun);
+                    return;   // solid wall right in front - round stops here
+                }
+            }
+        }
         Arrow bullet = player.getWorld().spawnArrow(
             player.getEyeLocation().add(dir.clone().multiply(0.6)), velocity, 1f, 0f);
         bullet.setShooter(player);
@@ -692,25 +721,24 @@ public final class ShootListener implements Listener {
         bullets.add(bullet.getUniqueId());
         ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
 
-        // Camera recoil LAST, and defensively: kick the view UP by the gun's recoil
-        // via a RELATIVE teleport (only pitch absolute; x/y/z/yaw relative deltas of
-        // zero) so momentum is preserved. It runs AFTER the bullet is already away and
-        // is wrapped so that if the teleport ever fails on a given server build it can
-        // never abort the shot - the bullet has already fired and dealt its damage.
-        // Skipped while riding: teleporting a passenger dismounts them, which was
-        // ejecting players from cars every time they fired.
-        if (gun.recoil() > 0 && !player.isInsideVehicle()) {
-            try {
-                Location aim = player.getLocation();
-                aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
-                player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
-                    io.papermc.paper.entity.TeleportFlag.Relative.X,
-                    io.papermc.paper.entity.TeleportFlag.Relative.Y,
-                    io.papermc.paper.entity.TeleportFlag.Relative.Z,
-                    io.papermc.paper.entity.TeleportFlag.Relative.YAW);
-            } catch (Throwable t) {
-                // recoil is cosmetic - never let it break firing
-            }
+        applyRecoil(player, gun);
+    }
+
+    /** Camera recoil: kick the view UP by the gun's recoil via a RELATIVE teleport
+     *  (only pitch absolute) so momentum is preserved. Wrapped so a failed teleport
+     *  never aborts the shot; skipped while riding (it would dismount a passenger). */
+    private void applyRecoil(Player player, Gun gun) {
+        if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
+        try {
+            Location aim = player.getLocation();
+            aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
+            player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
+                io.papermc.paper.entity.TeleportFlag.Relative.X,
+                io.papermc.paper.entity.TeleportFlag.Relative.Y,
+                io.papermc.paper.entity.TeleportFlag.Relative.Z,
+                io.papermc.paper.entity.TeleportFlag.Relative.YAW);
+        } catch (Throwable t) {
+            // recoil is cosmetic - never let it break firing
         }
     }
 
@@ -820,21 +848,8 @@ public final class ShootListener implements Listener {
             // can shoot out a window (or through it at whoever's behind it).
             org.bukkit.block.Block block = event.getHitBlock();
             if (isGlass(block.getType())) {
-                final org.bukkit.block.data.BlockData data = block.getBlockData();   // remember the exact pane
-                final Location loc = block.getLocation();
-                block.getWorld().playSound(loc, org.bukkit.Sound.BLOCK_GLASS_BREAK, 1f, 1f);
-                block.getWorld().spawnParticle(Particle.BLOCK,
-                    loc.clone().add(0.5, 0.5, 0.5), 20, 0.25, 0.25, 0.25, 0, data);
-                block.setType(org.bukkit.Material.AIR);
+                shatterGlass(block);
                 event.setCancelled(true);   // don't let the arrow stick - it carries on
-                // respawn the shattered glass after 2 minutes, but only if nothing
-                // else has taken the space in the meantime
-                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                    if (loc.getBlock().getType() == org.bukkit.Material.AIR) {
-                        loc.getBlock().setBlockData(data);
-                        loc.getWorld().playSound(loc, org.bukkit.Sound.BLOCK_GLASS_PLACE, 0.7f, 1.2f);
-                    }
-                }, 2400L);   // 120s
                 return;
             }
             int bounces = pdc.getOrDefault(bulletBouncesKey, PersistentDataType.INTEGER, 0);
@@ -899,6 +914,23 @@ public final class ShootListener implements Listener {
             });
         plugin.getServer().getScheduler().runTaskLater(plugin,
             () -> { if (disp.isValid()) disp.remove(); }, 300L);   // 15 s
+    }
+
+    /** Shatter a glass block (sound + particles) and respawn the exact pane after
+     *  2 minutes if the space is still empty. Shared by normal and point-blank hits. */
+    private void shatterGlass(org.bukkit.block.Block block) {
+        final org.bukkit.block.data.BlockData data = block.getBlockData();
+        final Location loc = block.getLocation();
+        block.getWorld().playSound(loc, org.bukkit.Sound.BLOCK_GLASS_BREAK, 1f, 1f);
+        block.getWorld().spawnParticle(Particle.BLOCK,
+            loc.clone().add(0.5, 0.5, 0.5), 20, 0.25, 0.25, 0.25, 0, data);
+        block.setType(org.bukkit.Material.AIR);
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (loc.getBlock().getType() == org.bukkit.Material.AIR) {
+                loc.getBlock().setBlockData(data);
+                loc.getWorld().playSound(loc, org.bukkit.Sound.BLOCK_GLASS_PLACE, 0.7f, 1.2f);
+            }
+        }, 2400L);   // 120s
     }
 
     /** Glass, stained glass, tinted glass and all their panes - the blocks a
