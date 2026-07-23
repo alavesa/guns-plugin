@@ -98,6 +98,41 @@ public final class GunsPlugin extends JavaPlugin {
                         .append(Component.text("aim (ironsights)", NamedTextColor.GREEN)));
                     return true;
                 }
+                case "barrel" -> {
+                    if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
+                    if (args.length == 1) {
+                        for (String state : new String[]{"normal", "aim"}) {
+                            sender.sendMessage(Component.text("barrel." + state + ": forward="
+                                + getConfig().getDouble("barrel." + state + ".forward",
+                                    state.equals("aim") ? 0.9 : 0.7)
+                                + " right=" + getConfig().getDouble("barrel." + state + ".right",
+                                    state.equals("aim") ? 0.0 : 0.28)
+                                + " up=" + getConfig().getDouble("barrel." + state + ".up",
+                                    state.equals("aim") ? -0.05 : -0.22), NamedTextColor.GRAY));
+                        }
+                        sender.sendMessage(Component.text(
+                            "/guns barrel <normal|aim> <forward> <right> <up>  (blocks; controls the "
+                            + "muzzle-flash + bullet origin)", NamedTextColor.AQUA));
+                        return true;
+                    }
+                    String state = args[1].toLowerCase();
+                    if (!state.equals("normal") && !state.equals("aim")) {
+                        return error(sender, "State must be 'normal' or 'aim'.");
+                    }
+                    if (args.length < 5) return error(sender, "/guns barrel " + state
+                        + " <forward> <right> <up>");
+                    try {
+                        getConfig().set("barrel." + state + ".forward", Double.parseDouble(args[2]));
+                        getConfig().set("barrel." + state + ".right", Double.parseDouble(args[3]));
+                        getConfig().set("barrel." + state + ".up", Double.parseDouble(args[4]));
+                    } catch (NumberFormatException e) {
+                        return error(sender, "Offsets must be numbers (blocks, e.g. 0.7).");
+                    }
+                    saveConfig();
+                    sender.sendMessage(Component.text("Set " + state + " barrel offset to forward="
+                        + args[2] + " right=" + args[3] + " up=" + args[4] + ".", NamedTextColor.GREEN));
+                    return true;
+                }
                 case "rename" -> {
                     if (!(sender instanceof Player player)) return error(sender, "Players only.");
                     if (!sender.hasPermission("guns.use")) return error(sender, "No permission.");
@@ -213,7 +248,7 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> filter(Stream.of("list", "models", "give", "create", "edit", "remove", "reload", "firemode"), args[0]);
+            case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")) {
                     yield filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())

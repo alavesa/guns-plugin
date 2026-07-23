@@ -712,17 +712,24 @@ public final class ShootListener implements Listener {
         applyRecoil(player, gun);
     }
 
-    /** The gun barrel: down and to the right of the eye (where the gun sits in
-     *  first-person), so bullets leave the muzzle instead of the player's head. */
+    /** The gun barrel (and muzzle-flash point): forward/right/up from the eye, where
+     *  the gun sits in first-person, so bullets and the flash leave the muzzle - not
+     *  the player's head. The offset is config-driven with SEPARATE values for the
+     *  aim state and the normal (hip) state; tune live with /guns barrel. */
     private Location barrelLocation(Player player, Vector dir) {
+        boolean aim = isAiming(player);
+        String k = aim ? "barrel.aim." : "barrel.normal.";
+        double fwd = plugin.getConfig().getDouble(k + "forward", aim ? 0.9 : 0.7);
+        double rt  = plugin.getConfig().getDouble(k + "right",   aim ? 0.0 : 0.28);
+        double up  = plugin.getConfig().getDouble(k + "up",      aim ? -0.05 : -0.22);
         Vector forward = dir.clone().normalize();
         Vector right = forward.clone().crossProduct(new Vector(0, 1, 0));
         if (right.lengthSquared() < 1e-6) right = new Vector(1, 0, 0);
         right.normalize();
         return player.getEyeLocation()
-            .add(forward.multiply(0.7))
-            .add(right.multiply(0.28))
-            .subtract(0, 0.22, 0);
+            .add(forward.multiply(fwd))
+            .add(right.multiply(rt))
+            .add(0, up, 0);
     }
 
     /** Camera recoil: pan the view UP by the gun's recoil, but SMOOTHLY over a few
