@@ -740,6 +740,9 @@ public final class ShootListener implements Listener {
      *  teleport so momentum is preserved; wrapped so a failed teleport never aborts
      *  the shot; skipped while riding (it would dismount a passenger). */
     private void applyRecoil(Player player, Gun gun) {
+        // Camera recoil is OFF by default now - shooting no longer bounces the view/gun on
+        // the player's screen. Set camera-recoil: true in the Guns config to bring it back.
+        if (!plugin.getConfig().getBoolean("camera-recoil", false)) return;
         if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
         final int steps = 3;                               // ~3 ticks = a fast, smooth pan
         final float per = (float) gun.recoil() / steps;
