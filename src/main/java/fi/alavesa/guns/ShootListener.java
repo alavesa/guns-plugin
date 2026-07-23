@@ -521,63 +521,23 @@ public final class ShootListener implements Listener {
         return -1;
     }
 
-    // ---- reserve ammo: full mags + a per-player "leftover" pool -------------
-    // Reloading with rounds still in the gun BANKS those rounds into a per-player
-    // pool (per mag type) instead of losing them - and the pool is only ever spent
-    // AFTER every full mag is gone, so the partial reloads are your LAST rounds.
-    // The mags never change: they stay identical and fully stackable; the leftovers
-    // live on the player (PDC), not on the item.
+    // ---- reserve ammo: whole magazines in the inventory --------------------
 
-    private NamespacedKey leftoverKey(String magId) {
-        return new NamespacedKey(plugin, "leftover_" + magId.toLowerCase(java.util.Locale.ROOT));
-    }
-    private int leftoverPool(Player p, String magId) {
-        return p.getPersistentDataContainer().getOrDefault(leftoverKey(magId), PersistentDataType.INTEGER, 0);
-    }
-    private void setLeftoverPool(Player p, String magId, int v) {
-        p.getPersistentDataContainer().set(leftoverKey(magId), PersistentDataType.INTEGER, Math.max(0, v));
-    }
-
-    /** How many rounds the next load gives. Reload only RE-CHAMBERS - it does NOT
-     *  consume a mag any more (firing does, via chargeMagForShot), so eject/reload
-     *  spam can't be exploited. Needs a mag in the inventory (or banked pool) to
-     *  reload from. Returns -1 if there's nothing to reload with. */
+    /** How many rounds the next load gives, CONSUMING one magazine from the inventory.
+     *  So reloading actually costs a mag (no free re-chamber), and reloading a
+     *  partly-spent gun discards the partial - standard, non-exploitable. Returns -1
+     *  if there's no mag to reload with. */
     private int drawReload(Player player, Gun gun) {
         if (!gun.requiresMag()) return gun.magazine();   // loose-round guns top up full
-        if (findMagSlot(player, gun.magId()) != -1) return gun.magazine();
-        int pool = leftoverPool(player, gun.magId());
-        if (pool > 0) {
-            int load = Math.min(gun.magazine(), pool);
-            setLeftoverPool(player, gun.magId(), pool - load);
-            return load;
-        }
-        return -1;
+        int slot = findMagSlot(player, gun.magId());
+        if (slot == -1) return -1;
+        ItemStack mag = player.getInventory().getItem(slot);
+        if (mag.getAmount() <= 1) player.getInventory().setItem(slot, null);
+        else mag.setAmount(mag.getAmount() - 1);
+        return gun.magazine();
     }
 
-    /** Rounds fired per magazine consumed. FIRING - not reloading - is what spends a
-     *  mag now, so you can't dump your mags and keep shooting: every ROUNDS_PER_MAG
-     *  rounds fired automatically removes one magazine from the inventory. */
-    private static final int ROUNDS_PER_MAG = 20;
-    /** Rounds fired since the last mag was spent, per (player | magId). */
-    private final Map<String, Integer> firedSinceMag = new ConcurrentHashMap<>();
-
-    /** Count a fired round; every ROUNDS_PER_MAG rounds, take one mag off the player. */
-    private void chargeMagForShot(Player player, Gun gun) {
-        if (!gun.requiresMag()) return;
-        String key = player.getUniqueId() + "|" + gun.magId();
-        int c = firedSinceMag.merge(key, 1, Integer::sum);
-        if (c >= ROUNDS_PER_MAG) {
-            firedSinceMag.put(key, c - ROUNDS_PER_MAG);
-            int slot = findMagSlot(player, gun.magId());
-            if (slot != -1) {
-                ItemStack m = player.getInventory().getItem(slot);
-                if (m.getAmount() <= 1) player.getInventory().setItem(slot, null);
-                else m.setAmount(m.getAmount() - 1);
-            }
-        }
-    }
-
-    /** Spare rounds not currently loaded: mags x ROUNDS_PER_MAG (+ any banked pool). */
+    /** Spare rounds not currently loaded: mags x the gun's magazine size. */
     public int reserveRounds(Player player, Gun gun) {
         if (!gun.requiresMag()) return 0;
         int mags = 0;
@@ -586,7 +546,7 @@ public final class ShootListener implements Listener {
             ItemStack it = inv.getItem(i);
             if (gun.magId().equals(registry.magIdOf(it))) mags += it.getAmount();
         }
-        return mags * ROUNDS_PER_MAG + leftoverPool(player, gun.magId());
+        return mags * gun.magazine();
     }
 
     /** Reload refused: dry click, nothing to feed the gun with. */
@@ -666,7 +626,6 @@ public final class ShootListener implements Listener {
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
-        chargeMagForShot(player, gun);   // every 20 rounds fired costs one magazine
         if (ammo - 1 <= 0) {
             // that was the last round: uncharge so holding right-click plays the
             // crossbow reload animation, show the empty-mag model, and lend a round
@@ -691,13 +650,15 @@ public final class ShootListener implements Listener {
         }
         Vector velocity = dir.normalize().multiply(gun.speed());
 
-        // POINT-BLANK: the round spawns 0.6 blocks down the barrel, so a wall or an
-        // enemy closer than that would have the arrow appear INSIDE/behind it and hit
-        // nothing (bullet negated, no mark). Ray-trace the muzzle clearance and, if
-        // something's right there, resolve the hit here (hitscan) instead of spawning
-        // an arrow that clips. Glass is shattered and the shot still spawns to carry on.
+        // CLOSE-RANGE HITSCAN: a fast no-gravity arrow covers its ENTIRE first tick of
+        // travel (several blocks) before the per-tick tracker runs, so a nearby wall is
+        // passed and the forward ray-trace misses it (bullet negated, no mark). So we
+        // hitscan the first tick's reach here at fire time: anything a solid distance in
+        // front - wall or enemy - is resolved now instead of by a clipping arrow. Glass
+        // shatters and the shot still spawns to carry on. Beyond this the arrow flies.
+        double pbRange = Math.max(4.0, gun.speed() + 1.0);
         Location eye = player.getEyeLocation();
-        RayTraceResult pb = player.getWorld().rayTrace(eye, dir, 1.2,
+        RayTraceResult pb = player.getWorld().rayTrace(eye, dir, pbRange,
             FluidCollisionMode.NEVER, true, 0.3,
             e -> e instanceof LivingEntity && e != player && !bullets.contains(e.getUniqueId()));
         if (pb != null) {
