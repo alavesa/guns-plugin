@@ -460,12 +460,9 @@ public final class ShootListener implements Listener {
             suppressReticle(player);
             return;
         }
-        // bank the rounds still in the gun (so they're not lost, and spent last),
-        // then leave the gun EMPTY and ready for the hold-right-click reload.
-        int leftover = registry.ammoOf(item);
-        if (gun.requiresMag()) {
-            setLeftoverPool(player, gun.magId(), leftoverPool(player, gun.magId()) + leftover);
-        }
+        // Eject just empties the chamber and readies the hold-right-click reload.
+        // Rounds aren't banked (mags are spent by FIRING now), so eject/reload can't
+        // be farmed for free ammo.
         registry.setAmmo(item, 0);
         unchargeGun(item);                 // uncharged crossbow -> right-click plays the reload pull
         showEmptyModel(player, item, gun); // the empty/no-mag model
@@ -541,18 +538,13 @@ public final class ShootListener implements Listener {
         p.getPersistentDataContainer().set(leftoverKey(magId), PersistentDataType.INTEGER, Math.max(0, v));
     }
 
-    /** How many rounds the NEXT load gives, consuming the source: a fresh full mag
-     *  if the inventory has one, else the banked leftover pool (drawn down) so the
-     *  partial reloads are spent LAST. Returns -1 if there's nothing to reload with. */
+    /** How many rounds the next load gives. Reload only RE-CHAMBERS - it does NOT
+     *  consume a mag any more (firing does, via chargeMagForShot), so eject/reload
+     *  spam can't be exploited. Needs a mag in the inventory (or banked pool) to
+     *  reload from. Returns -1 if there's nothing to reload with. */
     private int drawReload(Player player, Gun gun) {
         if (!gun.requiresMag()) return gun.magazine();   // loose-round guns top up full
-        int slot = findMagSlot(player, gun.magId());
-        if (slot != -1) {
-            ItemStack magItem = player.getInventory().getItem(slot);
-            if (magItem.getAmount() <= 1) player.getInventory().setItem(slot, null);
-            else magItem.setAmount(magItem.getAmount() - 1);
-            return gun.magazine();
-        }
+        if (findMagSlot(player, gun.magId()) != -1) return gun.magazine();
         int pool = leftoverPool(player, gun.magId());
         if (pool > 0) {
             int load = Math.min(gun.magazine(), pool);
@@ -562,7 +554,30 @@ public final class ShootListener implements Listener {
         return -1;
     }
 
-    /** Spare rounds not currently loaded: full mags x capacity + the leftover pool. */
+    /** Rounds fired per magazine consumed. FIRING - not reloading - is what spends a
+     *  mag now, so you can't dump your mags and keep shooting: every ROUNDS_PER_MAG
+     *  rounds fired automatically removes one magazine from the inventory. */
+    private static final int ROUNDS_PER_MAG = 20;
+    /** Rounds fired since the last mag was spent, per (player | magId). */
+    private final Map<String, Integer> firedSinceMag = new ConcurrentHashMap<>();
+
+    /** Count a fired round; every ROUNDS_PER_MAG rounds, take one mag off the player. */
+    private void chargeMagForShot(Player player, Gun gun) {
+        if (!gun.requiresMag()) return;
+        String key = player.getUniqueId() + "|" + gun.magId();
+        int c = firedSinceMag.merge(key, 1, Integer::sum);
+        if (c >= ROUNDS_PER_MAG) {
+            firedSinceMag.put(key, c - ROUNDS_PER_MAG);
+            int slot = findMagSlot(player, gun.magId());
+            if (slot != -1) {
+                ItemStack m = player.getInventory().getItem(slot);
+                if (m.getAmount() <= 1) player.getInventory().setItem(slot, null);
+                else m.setAmount(m.getAmount() - 1);
+            }
+        }
+    }
+
+    /** Spare rounds not currently loaded: mags x ROUNDS_PER_MAG (+ any banked pool). */
     public int reserveRounds(Player player, Gun gun) {
         if (!gun.requiresMag()) return 0;
         int mags = 0;
@@ -571,7 +586,7 @@ public final class ShootListener implements Listener {
             ItemStack it = inv.getItem(i);
             if (gun.magId().equals(registry.magIdOf(it))) mags += it.getAmount();
         }
-        return mags * gun.magazine() + leftoverPool(player, gun.magId());
+        return mags * ROUNDS_PER_MAG + leftoverPool(player, gun.magId());
     }
 
     /** Reload refused: dry click, nothing to feed the gun with. */
@@ -651,6 +666,7 @@ public final class ShootListener implements Listener {
         }
         registry.setAmmo(item, ammo - 1);
         player.getInventory().setItemInMainHand(item);
+        chargeMagForShot(player, gun);   // every 20 rounds fired costs one magazine
         if (ammo - 1 <= 0) {
             // that was the last round: uncharge so holding right-click plays the
             // crossbow reload animation, show the empty-mag model, and lend a round
@@ -797,26 +813,51 @@ public final class ShootListener implements Listener {
             }
 
             // Manual hit detection: fast, no-gravity arrows routinely TUNNEL through
-            // players between ticks, so ProjectileHitEvent never fires for the entity -
-            // this is why bullets often failed to damage. Ray-trace this tick's travel
-            // segment ourselves and apply the hit reliably.
+            // players AND walls between ticks, so ProjectileHitEvent fires late or not
+            // at all - which is why bullets failed to mark/damage at close (and any)
+            // range. Ray-trace this tick's travel segment ourselves, for BOTH entities
+            // and blocks, and resolve whichever is nearer.
             if (gun != null) {
                 Vector vel = bullet.getVelocity();
                 double reach = vel.length() + 0.5;
                 if (reach > 0.01) {
+                    Vector dir = vel.clone().normalize();
+                    Location from = bullet.getLocation();
                     String shooterId = pdc.get(bulletShooterKey, PersistentDataType.STRING);
                     Player shooter = shooterId == null ? null
                         : plugin.getServer().getPlayer(java.util.UUID.fromString(shooterId));
-                    org.bukkit.util.RayTraceResult rt = bullet.getWorld().rayTraceEntities(
-                        bullet.getLocation(), vel.clone().normalize(), reach, 0.35,
-                        ent -> ent instanceof LivingEntity && ent != shooter
-                            && !bullets.contains(ent.getUniqueId()));
-                    if (rt != null && rt.getHitEntity() instanceof LivingEntity target) {
-                        Location end = rt.getHitPosition().toLocation(bullet.getWorld());
-                        applyHit(shooter, gun, target, end);
-                        bullet.remove();
-                        bullets.remove(id);
-                        continue;
+                    org.bukkit.util.RayTraceResult ent = bullet.getWorld().rayTraceEntities(
+                        from, dir, reach, 0.35,
+                        e2 -> e2 instanceof LivingEntity && e2 != shooter
+                            && !bullets.contains(e2.getUniqueId()));
+                    org.bukkit.util.RayTraceResult blk = bullet.getWorld().rayTraceBlocks(
+                        from, dir, reach, FluidCollisionMode.NEVER, true);
+                    double entD = ent != null ? ent.getHitPosition().distanceSquared(from.toVector()) : Double.MAX_VALUE;
+                    double blkD = blk != null && blk.getHitBlock() != null
+                        ? blk.getHitPosition().distanceSquared(from.toVector()) : Double.MAX_VALUE;
+                    // entity first if it's nearer than the block
+                    if (ent != null && ent.getHitEntity() instanceof LivingEntity target && entD <= blkD) {
+                        applyHit(shooter, gun, target, ent.getHitPosition().toLocation(bullet.getWorld()));
+                        bullet.remove(); bullets.remove(id); continue;
+                    }
+                    if (blk != null && blk.getHitBlock() != null) {
+                        org.bukkit.block.Block b = blk.getHitBlock();
+                        if (isGlass(b.getType())) {
+                            shatterGlass(b);   // punch through, keep flying
+                        } else {
+                            int bounces = pdc.getOrDefault(bulletBouncesKey, PersistentDataType.INTEGER, 0);
+                            if (bounces > 0 && blk.getHitBlockFace() != null) {
+                                Vector normal = blk.getHitBlockFace().getDirection();
+                                bullet.setVelocity(vel.subtract(normal.multiply(2 * vel.dot(normal))));
+                                pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, bounces - 1);
+                                bullet.getWorld().playSound(from, "minecraft:block.chain.hit", 0.7f, 1.8f);
+                            } else {
+                                Location mark = blk.getHitPosition().toLocation(bullet.getWorld());
+                                bullet.getWorld().spawnParticle(Particle.SMOKE, mark, 3, 0.05, 0.05, 0.05, 0.01);
+                                spawnBulletHole(b, mark, blk.getHitBlockFace());
+                                bullet.remove(); bullets.remove(id); continue;
+                            }
+                        }
                     }
                 }
             }
