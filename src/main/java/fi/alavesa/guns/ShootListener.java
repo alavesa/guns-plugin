@@ -624,8 +624,11 @@ public final class ShootListener implements Listener {
             suppressReticle(player);
             return;
         }
+        // Decrement ammo IN PLACE on the held item's mirror - do NOT setItemInMainHand here.
+        // Re-setting the hand item every shot makes the client re-equip the gun (the on-screen
+        // bob, "as if switching items"), and mid-rapid-fire that desyncs the barrel so bullets
+        // look like they clip out of it. The mirror persists the PDC change on its own.
         registry.setAmmo(item, ammo - 1);
-        player.getInventory().setItemInMainHand(item);
         if (ammo - 1 <= 0) {
             // that was the last round: uncharge so holding right-click plays the
             // crossbow reload animation, show the empty-mag model, and lend a round
