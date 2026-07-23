@@ -722,6 +722,9 @@ public final class ShootListener implements Listener {
         double fwd = plugin.getConfig().getDouble(k + "forward", aim ? 0.9 : 0.7);
         double rt  = plugin.getConfig().getDouble(k + "right",   aim ? 0.0 : 0.28);
         double up  = plugin.getConfig().getDouble(k + "up",      aim ? -0.05 : -0.22);
+        // left-handed players hold the gun on the OTHER side, so mirror the sideways
+        // offset (the same values, flipped) - the muzzle sits on their left.
+        if (player.getMainHand() == org.bukkit.inventory.MainHand.LEFT) rt = -rt;
         Vector forward = dir.clone().normalize();
         Vector right = forward.clone().crossProduct(new Vector(0, 1, 0));
         if (right.lengthSquared() < 1e-6) right = new Vector(1, 0, 0);
