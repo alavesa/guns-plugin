@@ -636,7 +636,8 @@ public final class ShootListener implements Listener {
             Msg.actionbar(player, Component.text("Empty - hold right-click to reload", NamedTextColor.YELLOW));
             suppressReticle(player);
         }
-        dipHand(player); // the knife trick: the item dips instead of punching
+        // NOTE: no hand-dip on fire - the gun used to visibly drop on each shot; the
+        // arm-swing is already cancelled by onSwing, so the gun just stays put.
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
 
         // launch a real projectile: spread cone (tighter while aiming),
@@ -648,10 +649,16 @@ public final class ShootListener implements Listener {
             dir = rotate(dir, Math.toRadians(rng.nextGaussian() * spread * 0.5),
                 Math.toRadians(rng.nextGaussian() * spread * 0.5));
         }
-        Vector velocity = dir.normalize().multiply(gun.speed());
+        dir.normalize();
+        // Fire from the GUN BARREL, not the player's head: the muzzle sits down and to
+        // the right of the eye (where the gun is in first-person). Aim the round from
+        // there toward the crosshair (a far point down the eye ray) so it still lands
+        // where you're looking.
+        Location muzzle = barrelLocation(player, dir);
+        Vector aimPoint = player.getEyeLocation().toVector().add(dir.clone().multiply(60));
+        Vector velocity = aimPoint.clone().subtract(muzzle.toVector()).normalize().multiply(gun.speed());
 
-        // muzzle flash: a small white spark burst at the start of the bullet's path
-        Location muzzle = player.getEyeLocation().add(dir.clone().multiply(0.6));
+        // muzzle flash: a small white spark burst at the barrel
         player.getWorld().spawnParticle(Particle.DUST, muzzle, 6, 0.03, 0.03, 0.03, 0,
             new Particle.DustOptions(Color.WHITE, 0.7f));
 
@@ -685,8 +692,7 @@ public final class ShootListener implements Listener {
                 }
             }
         }
-        Arrow bullet = player.getWorld().spawnArrow(
-            player.getEyeLocation().add(dir.clone().multiply(0.6)), velocity, 1f, 0f);
+        Arrow bullet = player.getWorld().spawnArrow(muzzle, velocity, 1f, 0f);
         bullet.setShooter(player);
         bullet.setGravity(false);              // curve is applied manually by the tracker
         bullet.setVelocity(velocity);
@@ -706,21 +712,42 @@ public final class ShootListener implements Listener {
         applyRecoil(player, gun);
     }
 
-    /** Camera recoil: kick the view UP by the gun's recoil via a RELATIVE teleport
-     *  (only pitch absolute) so momentum is preserved. Wrapped so a failed teleport
-     *  never aborts the shot; skipped while riding (it would dismount a passenger). */
+    /** The gun barrel: down and to the right of the eye (where the gun sits in
+     *  first-person), so bullets leave the muzzle instead of the player's head. */
+    private Location barrelLocation(Player player, Vector dir) {
+        Vector forward = dir.clone().normalize();
+        Vector right = forward.clone().crossProduct(new Vector(0, 1, 0));
+        if (right.lengthSquared() < 1e-6) right = new Vector(1, 0, 0);
+        right.normalize();
+        return player.getEyeLocation()
+            .add(forward.multiply(0.7))
+            .add(right.multiply(0.28))
+            .subtract(0, 0.22, 0);
+    }
+
+    /** Camera recoil: pan the view UP by the gun's recoil, but SMOOTHLY over a few
+     *  ticks (a quick smooth pan, not a single instant snap). Each step is a RELATIVE
+     *  teleport so momentum is preserved; wrapped so a failed teleport never aborts
+     *  the shot; skipped while riding (it would dismount a passenger). */
     private void applyRecoil(Player player, Gun gun) {
         if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
-        try {
-            Location aim = player.getLocation();
-            aim.setPitch((float) Math.max(-90.0, aim.getPitch() - gun.recoil()));
-            player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
-                io.papermc.paper.entity.TeleportFlag.Relative.X,
-                io.papermc.paper.entity.TeleportFlag.Relative.Y,
-                io.papermc.paper.entity.TeleportFlag.Relative.Z,
-                io.papermc.paper.entity.TeleportFlag.Relative.YAW);
-        } catch (Throwable t) {
-            // recoil is cosmetic - never let it break firing
+        final int steps = 3;                               // ~3 ticks = a fast, smooth pan
+        final float per = (float) gun.recoil() / steps;
+        for (int i = 0; i < steps; i++) {
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                if (!player.isOnline() || player.isInsideVehicle()) return;
+                try {
+                    Location aim = player.getLocation();
+                    aim.setPitch((float) Math.max(-90.0, aim.getPitch() - per));
+                    player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
+                        io.papermc.paper.entity.TeleportFlag.Relative.X,
+                        io.papermc.paper.entity.TeleportFlag.Relative.Y,
+                        io.papermc.paper.entity.TeleportFlag.Relative.Z,
+                        io.papermc.paper.entity.TeleportFlag.Relative.YAW);
+                } catch (Throwable t) {
+                    // recoil is cosmetic - never let it break firing
+                }
+            }, i);   // ticks 0, 1, 2
         }
     }
 
