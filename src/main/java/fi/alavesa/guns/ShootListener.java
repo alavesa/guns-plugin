@@ -650,6 +650,11 @@ public final class ShootListener implements Listener {
         }
         Vector velocity = dir.normalize().multiply(gun.speed());
 
+        // muzzle flash: a small white spark burst at the start of the bullet's path
+        Location muzzle = player.getEyeLocation().add(dir.clone().multiply(0.6));
+        player.getWorld().spawnParticle(Particle.DUST, muzzle, 6, 0.03, 0.03, 0.03, 0,
+            new Particle.DustOptions(Color.WHITE, 0.7f));
+
         // CLOSE-RANGE HITSCAN: a fast no-gravity arrow covers its ENTIRE first tick of
         // travel (several blocks) before the per-tick tracker runs, so a nearby wall is
         // passed and the forward ray-trace misses it (bullet negated, no mark). So we
