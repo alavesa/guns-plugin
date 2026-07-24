@@ -740,10 +740,15 @@ public final class ShootListener implements Listener {
         // resets a running player's momentum = the "running + shooting stops me" bug) and never
         // during full-auto (per-tick setVelocity freezes movement). Horizontal only, so no hop.
         double kb = plugin.getConfig().getDouble("knockback", 0.05);
-        if (kb > 0 && !player.isSprinting() && !autoFiring.contains(player.getUniqueId())) {
+        Vector vel = player.getVelocity();
+        boolean movingHorizontally = Math.hypot(vel.getX(), vel.getZ()) > 0.08;
+        // Only nudge a player who is STANDING STILL on the ground - so knockback can never
+        // interrupt someone who's walking/running (setVelocity would cancel their momentum).
+        if (kb > 0 && !movingHorizontally && player.isOnGround()
+            && !player.isSprinting() && !autoFiring.contains(player.getUniqueId())) {
             Vector back = player.getEyeLocation().getDirection().clone().setY(0.0);
             if (back.lengthSquared() > 1e-6) {
-                player.setVelocity(player.getVelocity().add(back.normalize().multiply(-kb)));
+                player.setVelocity(vel.add(back.normalize().multiply(-kb)));
             }
         }
         // Camera recoil (a smooth 3-tick view pan up) is back ON by default.
