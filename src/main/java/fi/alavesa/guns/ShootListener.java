@@ -126,7 +126,18 @@ public final class ShootListener implements Listener {
     public void tickReticle() {
         long now = System.currentTimeMillis();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
+            ItemStack held = player.getInventory().getItemInMainHand();
+            Gun heldGun = registry.gunOf(held);
+            if (heldGun == null) continue;
+            // KEY: keep a LOADED crossbow gun permanently on cooldown so right-clicking it can
+            // never trigger the vanilla crossbow's fire animation - THAT client-side animation is
+            // the up/down "bounce". Our onShoot still fires the custom bullet (the interact event
+            // fires regardless of cooldown). An EMPTY gun gets NO cooldown, so holding right-click
+            // still plays the crossbow reload/charge pull (our reload mechanic). Spyglass guns
+            // scope on right-click (vanilla), so they're left alone.
+            if (!heldGun.isSpyglass() && registry.ammoOf(held) > 0) {
+                player.setCooldown(Material.CROSSBOW, 4);   // > the 1-tick refresh, so always live
+            }
             Long hideUntil = reticleHideUntil.get(player.getUniqueId());
             if (hideUntil != null && now < hideUntil) continue;   // a message is showing
             // Aiming: NO reticle brackets (the closing-in brackets are gone by request).
