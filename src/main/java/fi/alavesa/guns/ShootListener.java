@@ -748,7 +748,7 @@ public final class ShootListener implements Listener {
         // (setVelocity) is what re-broke the gun - pushing a player's velocity jumps them up/down
         // and cancels a running player's momentum. It's gone; the smooth recoil IS the kick.
         // (camera-recoil: false in the config disables the recoil entirely.)
-        if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
+        if (!plugin.getConfig().getBoolean("camera-recoil", false)) return;
         if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
         final int steps = 3;                               // ~3 ticks = a fast, smooth pan
         final float per = (float) gun.recoil() / steps;
