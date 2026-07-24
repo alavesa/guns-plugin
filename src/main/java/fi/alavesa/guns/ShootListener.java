@@ -124,17 +124,19 @@ public final class ShootListener implements Listener {
      *  action bar but the font's ascent lifts it up to cursor level, and the
      *  action bar's centering keeps the brackets symmetric around the cursor. */
     public void tickReticle() {
-        long now = System.currentTimeMillis();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
-            Long hideUntil = reticleHideUntil.get(player.getUniqueId());
-            if (hideUntil != null && now < hideUntil) continue;   // a message is showing
-            // Aiming: NO reticle brackets (the closing-in brackets are gone by request).
-            // The ironsight model + crosshair is the aim; hip-fire keeps the wide brackets.
-            if (aiming.contains(player.getUniqueId())) { Msg.clearReticle(player); continue; }
-            int width = 26 + 26;   // two bracket advances + the wide gap (see gen_reticle.py)
-            Component glyph = Component.text(R_LEFT + R_GAP_WIDE + R_RIGHT).font(RETICLE_FONT);
-            Msg.reticle(player, glyph, width);
+            ItemStack heldGun = player.getInventory().getItemInMainHand();
+            Gun gun = registry.gunOf(heldGun);
+            if (gun == null) continue;
+            // The gun crossbow is uncharged (so it never plays the vanilla FIRE animation = the
+            // bob). Holding right-click then puts it in the LOADING state, which is what keeps
+            // the hand raised for full-auto - and that needs a round to load. Keep a lent arrow
+            // on hand while a LOADED gun is held so auto works; onCrossbowLoad cancels the load
+            // for a loaded gun, so it never actually charges (and the model stays static = steady).
+            if (!gun.isSpyglass() && registry.ammoOf(heldGun) > 0) lendArrowFor(player);
+            // The bracket reticle is GONE entirely (by request - the brackets that flashed on
+            // aim/un-aim). Just keep it cleared; the vanilla crosshair is the aim point.
+            Msg.clearReticle(player);
         }
     }
 
@@ -265,12 +267,13 @@ public final class ShootListener implements Listener {
     private void repairPose(ItemStack item) {
         if (item == null || item.getType() != Material.CROSSBOW) return;
         if (registry.gunOf(item) == null) return;
-        if (!(item.getItemMeta() instanceof CrossbowMeta meta)) return;
-        boolean shouldBeCharged = registry.ammoOf(item) > 0;
-        if (shouldBeCharged && !meta.hasChargedProjectiles()) {
-            meta.addChargedProjectile(new ItemStack(Material.ARROW));
-            item.setItemMeta(meta);
-        } else if (!shouldBeCharged && meta.hasChargedProjectiles()) {
+        // Keep the gun crossbow PERMANENTLY UNCHARGED. Its model is picked by custom_model_data
+        // (resource-pack crossbow.json), so it renders the gun whether charged or not - and a
+        // CHARGED crossbow is exactly what makes the client play the vanilla fire animation on
+        // right-click (the on-screen bob). Uncharged, right-click does nothing (we fire the
+        // custom bullet from onShoot); the reload still works (the empty gun briefly charges
+        // during the load pull, then onCrossbowLoad uncharges it again).
+        if (item.getItemMeta() instanceof CrossbowMeta meta && meta.hasChargedProjectiles()) {
             meta.setChargedProjectiles(java.util.List.of());
             item.setItemMeta(meta);
         }
@@ -505,6 +508,7 @@ public final class ShootListener implements Listener {
             Gun held = registry.gunOf(now);
             if (held == null || !held.id().equals(gun.id())) return;
             registry.setAmmo(now, load);
+            unchargeGun(now);   // the vanilla load charged it; keep it uncharged so firing doesn't bob
             showNormalModel(player, now, held);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
             ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
@@ -741,11 +745,18 @@ public final class ShootListener implements Listener {
      *  teleport so momentum is preserved; wrapped so a failed teleport never aborts
      *  the shot; skipped while riding (it would dismount a passenger). */
     private void applyRecoil(Player player, Gun gun) {
-        // RESTORED to the version that worked (commit f2b968c "no gun-dip, smooth recoil"):
-        // a smooth 3-tick view pan up, and NO velocity knockback. The knockback I added later
-        // (setVelocity) is what re-broke the gun - pushing a player's velocity jumps them up/down
-        // and cancels a running player's momentum. It's gone; the smooth recoil IS the kick.
-        // (camera-recoil: false in the config disables the recoil entirely.)
+        if (player.isInsideVehicle()) return;   // never shove a seated (driving) player
+        // Knockback: a small backward nudge on a single shot. NEVER while sprinting (setVelocity
+        // resets a running player's momentum = the "running + shooting stops me" bug) and never
+        // during full-auto (per-tick setVelocity freezes movement). Horizontal only, so no hop.
+        double kb = plugin.getConfig().getDouble("knockback", 0.05);
+        if (kb > 0 && !player.isSprinting() && !autoFiring.contains(player.getUniqueId())) {
+            Vector back = player.getEyeLocation().getDirection().clone().setY(0.0);
+            if (back.lengthSquared() > 1e-6) {
+                player.setVelocity(player.getVelocity().add(back.normalize().multiply(-kb)));
+            }
+        }
+        // Camera recoil (view pan up) stays OFF by default - the reference clip is dead steady.
         if (!plugin.getConfig().getBoolean("camera-recoil", false)) return;
         if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
         final int steps = 3;                               // ~3 ticks = a fast, smooth pan

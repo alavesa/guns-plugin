@@ -6,7 +6,7 @@
 
   <groupId>fi.alavesa</groupId>
   <artifactId>guns-plugin</artifactId>
-  <version>0.16.18</version>
+  <version>0.16.19</version>
   <packaging>jar</packaging>
 
   <name>Guns</name>

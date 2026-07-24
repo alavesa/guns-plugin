@@ -462,7 +462,9 @@ public final class GunRegistry {
         }
         ItemStack item = new ItemStack(Material.CROSSBOW);
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
-        meta.addChargedProjectile(new ItemStack(Material.ARROW));
+        // NOT charged: a charged crossbow makes the client play the vanilla fire animation on
+        // right-click (the bob). The gun model comes from custom_model_data, so it renders
+        // fine uncharged. (ShootListener keeps it uncharged and fires the custom bullet.)
         applyCosmetics(meta, gun.name(), gun.model());
         meta.setUnbreakable(true);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
