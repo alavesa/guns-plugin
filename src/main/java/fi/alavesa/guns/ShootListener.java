@@ -743,35 +743,36 @@ public final class ShootListener implements Listener {
      *  the shot; skipped while riding (it would dismount a passenger). */
     private void applyRecoil(Player player, Gun gun) {
         if (player.isInsideVehicle()) return;   // never shove a seated (driving) player
-        // Small backward KNOCKBACK on every shot (independent of camera recoil).
-        double kb = plugin.getConfig().getDouble("knockback", 0.09);
+        // CRITICAL: during full-auto do NOT touch velocity or teleport the view every tick.
+        // Setting velocity each tick overrides WASD (the player freezes), and teleporting the
+        // pitch 10x/sec rubberbands the camera up and down. Auto stays smooth; the kick is for
+        // single (semi) shots only, once per trigger pull.
+        if (autoFiring.contains(player.getUniqueId())) return;
+
+        // Small backward knockback (semi only), pure horizontal so it never launches you up.
+        double kb = plugin.getConfig().getDouble("knockback", 0.05);
         if (kb > 0) {
             Vector back = player.getEyeLocation().getDirection().clone().setY(0.0);
             if (back.lengthSquared() > 1e-6) {
-                back.normalize().multiply(-kb).setY(0.03);   // a hair of lift so it reads as a kick
+                back.normalize().multiply(-kb);
                 player.setVelocity(player.getVelocity().add(back));
             }
         }
-        // Camera recoil: pan the view up. On by default; set camera-recoil: false to disable.
+
+        // Camera recoil: ONE small pitch-up nudge per shot (not a 3-tick teleport burst, which
+        // was the up/down jitter). On by default; camera-recoil: false disables it.
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
         if (gun.recoil() <= 0) return;
-        final int steps = 3;                               // ~3 ticks = a fast, smooth pan
-        final float per = (float) gun.recoil() / steps;
-        for (int i = 0; i < steps; i++) {
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                if (!player.isOnline() || player.isInsideVehicle()) return;
-                try {
-                    Location aim = player.getLocation();
-                    aim.setPitch((float) Math.max(-90.0, aim.getPitch() - per));
-                    player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
-                        io.papermc.paper.entity.TeleportFlag.Relative.X,
-                        io.papermc.paper.entity.TeleportFlag.Relative.Y,
-                        io.papermc.paper.entity.TeleportFlag.Relative.Z,
-                        io.papermc.paper.entity.TeleportFlag.Relative.YAW);
-                } catch (Throwable t) {
-                    // recoil is cosmetic - never let it break firing
-                }
-            }, i);   // ticks 0, 1, 2
+        try {
+            Location aim = player.getLocation();
+            aim.setPitch((float) Math.max(-90.0, aim.getPitch() - (float) gun.recoil()));
+            player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
+                io.papermc.paper.entity.TeleportFlag.Relative.X,
+                io.papermc.paper.entity.TeleportFlag.Relative.Y,
+                io.papermc.paper.entity.TeleportFlag.Relative.Z,
+                io.papermc.paper.entity.TeleportFlag.Relative.YAW);
+        } catch (Throwable t) {
+            // recoil is cosmetic - never let it break firing
         }
     }
 
