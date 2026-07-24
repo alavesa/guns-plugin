@@ -125,15 +125,7 @@ public final class ShootListener implements Listener {
      *  action bar's centering keeps the brackets symmetric around the cursor. */
     public void tickReticle() {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            ItemStack heldGun = player.getInventory().getItemInMainHand();
-            Gun gun = registry.gunOf(heldGun);
-            if (gun == null) continue;
-            // The gun crossbow is uncharged (so it never plays the vanilla FIRE animation = the
-            // bob). Holding right-click then puts it in the LOADING state, which is what keeps
-            // the hand raised for full-auto - and that needs a round to load. Keep a lent arrow
-            // on hand while a LOADED gun is held so auto works; onCrossbowLoad cancels the load
-            // for a loaded gun, so it never actually charges (and the model stays static = steady).
-            if (!gun.isSpyglass() && registry.ammoOf(heldGun) > 0) lendArrowFor(player);
+            if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
             // The bracket reticle is GONE entirely (by request - the brackets that flashed on
             // aim/un-aim). Just keep it cleared; the vanilla crosshair is the aim point.
             Msg.clearReticle(player);
@@ -267,13 +259,12 @@ public final class ShootListener implements Listener {
     private void repairPose(ItemStack item) {
         if (item == null || item.getType() != Material.CROSSBOW) return;
         if (registry.gunOf(item) == null) return;
-        // Keep the gun crossbow PERMANENTLY UNCHARGED. Its model is picked by custom_model_data
-        // (resource-pack crossbow.json), so it renders the gun whether charged or not - and a
-        // CHARGED crossbow is exactly what makes the client play the vanilla fire animation on
-        // right-click (the on-screen bob). Uncharged, right-click does nothing (we fire the
-        // custom bullet from onShoot); the reload still works (the empty gun briefly charges
-        // during the load pull, then onCrossbowLoad uncharges it again).
-        if (item.getItemMeta() instanceof CrossbowMeta meta && meta.hasChargedProjectiles()) {
+        if (!(item.getItemMeta() instanceof CrossbowMeta meta)) return;
+        boolean shouldBeCharged = registry.ammoOf(item) > 0;
+        if (shouldBeCharged && !meta.hasChargedProjectiles()) {
+            meta.addChargedProjectile(new ItemStack(Material.ARROW));
+            item.setItemMeta(meta);
+        } else if (!shouldBeCharged && meta.hasChargedProjectiles()) {
             meta.setChargedProjectiles(java.util.List.of());
             item.setItemMeta(meta);
         }
@@ -508,7 +499,6 @@ public final class ShootListener implements Listener {
             Gun held = registry.gunOf(now);
             if (held == null || !held.id().equals(gun.id())) return;
             registry.setAmmo(now, load);
-            unchargeGun(now);   // the vanilla load charged it; keep it uncharged so firing doesn't bob
             showNormalModel(player, now, held);
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
             ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
@@ -756,8 +746,8 @@ public final class ShootListener implements Listener {
                 player.setVelocity(player.getVelocity().add(back.normalize().multiply(-kb)));
             }
         }
-        // Camera recoil (view pan up) stays OFF by default - the reference clip is dead steady.
-        if (!plugin.getConfig().getBoolean("camera-recoil", false)) return;
+        // Camera recoil (a smooth 3-tick view pan up) is back ON by default.
+        if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
         if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
         final int steps = 3;                               // ~3 ticks = a fast, smooth pan
         final float per = (float) gun.recoil() / steps;
