@@ -126,18 +126,7 @@ public final class ShootListener implements Listener {
     public void tickReticle() {
         long now = System.currentTimeMillis();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            ItemStack held = player.getInventory().getItemInMainHand();
-            Gun heldGun = registry.gunOf(held);
-            if (heldGun == null) continue;
-            // KEY: keep a LOADED crossbow gun permanently on cooldown so right-clicking it can
-            // never trigger the vanilla crossbow's fire animation - THAT client-side animation is
-            // the up/down "bounce". Our onShoot still fires the custom bullet (the interact event
-            // fires regardless of cooldown). An EMPTY gun gets NO cooldown, so holding right-click
-            // still plays the crossbow reload/charge pull (our reload mechanic). Spyglass guns
-            // scope on right-click (vanilla), so they're left alone.
-            if (!heldGun.isSpyglass() && registry.ammoOf(held) > 0) {
-                player.setCooldown(Material.CROSSBOW, 4);   // > the 1-tick refresh, so always live
-            }
+            if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
             Long hideUntil = reticleHideUntil.get(player.getUniqueId());
             if (hideUntil != null && now < hideUntil) continue;   // a message is showing
             // Aiming: NO reticle brackets (the closing-in brackets are gone by request).
@@ -634,11 +623,12 @@ public final class ShootListener implements Listener {
             suppressReticle(player);
             return;
         }
-        // Decrement ammo IN PLACE on the held item's mirror - do NOT setItemInMainHand here.
-        // Re-setting the hand item every shot makes the client re-equip the gun (the on-screen
-        // bob, "as if switching items"), and mid-rapid-fire that desyncs the barrel so bullets
-        // look like they clip out of it. The mirror persists the PDC change on its own.
+        // Decrement ammo and RE-SET the hand item - exactly as the last known-good version did
+        // ("no gun-dip, smooth recoil"). Re-syncing the item each shot keeps client and server in
+        // step (same crossbow, so no re-equip); REMOVING this (my earlier "fix") is what actually
+        // introduced the bob. Restored.
         registry.setAmmo(item, ammo - 1);
+        player.getInventory().setItemInMainHand(item);
         if (ammo - 1 <= 0) {
             // that was the last round: uncharge so holding right-click plays the
             // crossbow reload animation, show the empty-mag model, and lend a round
