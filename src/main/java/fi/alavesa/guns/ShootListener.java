@@ -129,12 +129,11 @@ public final class ShootListener implements Listener {
             if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
             Long hideUntil = reticleHideUntil.get(player.getUniqueId());
             if (hideUntil != null && now < hideUntil) continue;   // a message is showing
-            boolean aim = aiming.contains(player.getUniqueId());
-            String gap = aim ? R_GAP_NARROW : R_GAP_WIDE;
-            // width = two bracket advances (~13 each) + the gap advance (see gen_reticle.py:
-            // WIDE=26, NARROW=8), so the hub can center it on the crosshair
-            int width = 26 + (aim ? 8 : 26);
-            Component glyph = Component.text(R_LEFT + gap + R_RIGHT).font(RETICLE_FONT);
+            // Aiming: NO reticle brackets (the closing-in brackets are gone by request).
+            // The ironsight model + crosshair is the aim; hip-fire keeps the wide brackets.
+            if (aiming.contains(player.getUniqueId())) { Msg.clearReticle(player); continue; }
+            int width = 26 + 26;   // two bracket advances + the wide gap (see gen_reticle.py)
+            Component glyph = Component.text(R_LEFT + R_GAP_WIDE + R_RIGHT).font(RETICLE_FONT);
             Msg.reticle(player, glyph, width);
         }
     }
@@ -743,10 +742,19 @@ public final class ShootListener implements Listener {
      *  teleport so momentum is preserved; wrapped so a failed teleport never aborts
      *  the shot; skipped while riding (it would dismount a passenger). */
     private void applyRecoil(Player player, Gun gun) {
-        // Camera recoil is OFF by default now - shooting no longer bounces the view/gun on
-        // the player's screen. Set camera-recoil: true in the Guns config to bring it back.
-        if (!plugin.getConfig().getBoolean("camera-recoil", false)) return;
-        if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
+        if (player.isInsideVehicle()) return;   // never shove a seated (driving) player
+        // Small backward KNOCKBACK on every shot (independent of camera recoil).
+        double kb = plugin.getConfig().getDouble("knockback", 0.09);
+        if (kb > 0) {
+            Vector back = player.getEyeLocation().getDirection().clone().setY(0.0);
+            if (back.lengthSquared() > 1e-6) {
+                back.normalize().multiply(-kb).setY(0.03);   // a hair of lift so it reads as a kick
+                player.setVelocity(player.getVelocity().add(back));
+            }
+        }
+        // Camera recoil: pan the view up. On by default; set camera-recoil: false to disable.
+        if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
+        if (gun.recoil() <= 0) return;
         final int steps = 3;                               // ~3 ticks = a fast, smooth pan
         final float per = (float) gun.recoil() / steps;
         for (int i = 0; i < steps; i++) {

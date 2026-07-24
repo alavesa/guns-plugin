@@ -45,4 +45,13 @@ final class Msg {
             player.sendActionBar(glyph);
         }
     }
+
+    /** Drop the reticle from the hub (e.g. while aiming, where we don't want brackets). */
+    static void clearReticle(Player player) {
+        if (HUB) {
+            fi.alavesa.labra.ActionBars.clearReticle(player);
+        } else {
+            player.sendActionBar(Component.empty());
+        }
+    }
 }
