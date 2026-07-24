@@ -623,12 +623,10 @@ public final class ShootListener implements Listener {
             suppressReticle(player);
             return;
         }
-        // Decrement ammo and RE-SET the hand item - exactly as the last known-good version did
-        // ("no gun-dip, smooth recoil"). Re-syncing the item each shot keeps client and server in
-        // step (same crossbow, so no re-equip); REMOVING this (my earlier "fix") is what actually
-        // introduced the bob. Restored.
+        // Ammo now lives in RAM (GunRegistry.liveAmmo), so this does NOT rewrite the held item -
+        // the item is byte-for-byte identical after a shot, so the client has nothing to re-equip
+        // and the gun cannot bob. No setItemInMainHand here on purpose.
         registry.setAmmo(item, ammo - 1);
-        player.getInventory().setItemInMainHand(item);
         if (ammo - 1 <= 0) {
             // that was the last round: uncharge so holding right-click plays the
             // crossbow reload animation, show the empty-mag model, and lend a round

@@ -54,6 +54,12 @@ public final class GunRegistry {
     private final NamespacedKey magKey;
     private final NamespacedKey magCapacityKey;
     private final NamespacedKey fireModeKey;
+    private final NamespacedKey instanceKey;
+    /** Live ammo per gun INSTANCE, held in RAM keyed by the item's instance id. Ammo lives
+     *  here, NOT in the item, so firing never rewrites the held item - which is what made the
+     *  gun re-equip/bob on the screen every shot on 1.21.2+/26.x. Seeded from the item's
+     *  stamped magazine on first read; not persisted across restart (guns come back full). */
+    private final Map<String, Integer> liveAmmo = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String, Gun> guns = new LinkedHashMap<>();
     private final Map<String, Grenade> grenades = new LinkedHashMap<>();
     private final Map<String, Mag> mags = new LinkedHashMap<>();
@@ -68,6 +74,7 @@ public final class GunRegistry {
         this.magKey = new NamespacedKey(plugin, "mag");
         this.magCapacityKey = new NamespacedKey(plugin, "mag_capacity");
         this.fireModeKey = new NamespacedKey(plugin, "fire_mode");
+        this.instanceKey = new NamespacedKey(plugin, "gun_uid");
     }
 
     /** The gun item's selected fire mode, defaulting to the gun's first offered
@@ -449,6 +456,7 @@ public final class GunRegistry {
             applyCosmetics(meta, gun.name(), gun.model());
             meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, gun.id());
             meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
+            meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
             item.setItemMeta(meta);
             return item;
         }
@@ -460,6 +468,7 @@ public final class GunRegistry {
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, gun.id());
         meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
+        meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
         item.setItemMeta(meta);
         return item;
     }
@@ -520,14 +529,36 @@ public final class GunRegistry {
         return item.getItemMeta().getPersistentDataContainer().get(magKey, PersistentDataType.STRING);
     }
 
-    public int ammoOf(ItemStack item) {
-        Integer ammo = item.getItemMeta().getPersistentDataContainer().get(ammoKey, PersistentDataType.INTEGER);
-        return ammo == null ? 0 : ammo;
+    /** Stable per-instance id for a gun item. New guns get it at build time (no item change
+     *  when firing); a legacy gun without one is stamped ONCE here (not during any per-shot
+     *  path in practice, since it's read on draw first). */
+    private String instanceId(ItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+        String uid = meta.getPersistentDataContainer().get(instanceKey, PersistentDataType.STRING);
+        if (uid == null) {
+            uid = java.util.UUID.randomUUID().toString();
+            meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, uid);
+            item.setItemMeta(meta);   // one-time only; brand-new guns already carry the id
+        }
+        return uid;
     }
 
+    public int ammoOf(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return 0;
+        String uid = instanceId(item);
+        Integer live = liveAmmo.get(uid);
+        if (live != null) return live;
+        // first time we've seen this instance: seed from the stamped magazine value
+        Integer stored = item.getItemMeta().getPersistentDataContainer().get(ammoKey, PersistentDataType.INTEGER);
+        int v = stored == null ? 0 : stored;
+        liveAmmo.put(uid, v);
+        return v;
+    }
+
+    /** Set ammo in RAM ONLY - the held item is never rewritten, so a shot never re-equips
+     *  the gun on screen (the up/down bob). */
     public void setAmmo(ItemStack item, int ammo) {
-        var meta = item.getItemMeta();
-        meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, ammo);
-        item.setItemMeta(meta);
+        if (item == null || !item.hasItemMeta()) return;
+        liveAmmo.put(instanceId(item), Math.max(0, ammo));
     }
 }
