@@ -125,10 +125,28 @@ public final class ShootListener implements Listener {
      *  action bar's centering keeps the brackets symmetric around the cursor. */
     public void tickReticle() {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) continue;
+            Gun gun = registry.gunOf(player.getInventory().getItemInMainHand());
+            if (gun == null) continue;
+            manageBobCooldown(player, gun);
             // The bracket reticle is GONE entirely (by request - the brackets that flashed on
             // aim/un-aim). Just keep it cleared; the vanilla crosshair is the aim point.
             Msg.clearReticle(player);
+        }
+    }
+
+    /** THE bob fix (Leo's option A): the crossbow's own charge->fire->uncharge->reload PUMP is
+     *  what visibly jolts the gun on screen every shot. We keep a LOADED gun permanently on an
+     *  item-cooldown so vanilla never plays that pump - the plugin fires the arrow manually from
+     *  the (still-cancelled) right-click, and the gun just sits in its static charged pose. The
+     *  cooldown is re-applied EVERY tick so its white overlay stays completely full and constant
+     *  (no sweeping animation - by request) and the use is never unblocked for even one tick.
+     *  An EMPTY gun must clear the cooldown, because the reload needs the vanilla charging pull. */
+    private void manageBobCooldown(Player player, Gun gun) {
+        if (gun.isSpyglass()) return;   // spyglass sniper uses SPYGLASS, not the crossbow pose
+        if (registry.ammoOf(player.getInventory().getItemInMainHand()) > 0) {
+            player.setCooldown(Material.CROSSBOW, GUN_COOLDOWN_TICKS);
+        } else if (player.getCooldown(Material.CROSSBOW) > 0) {
+            player.setCooldown(Material.CROSSBOW, 0);   // let the empty gun reload
         }
     }
 
@@ -349,6 +367,7 @@ public final class ShootListener implements Listener {
                 return;
             }
             event.setCancelled(true);
+            lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
             // AUTO: hold right-click to keep firing; SEMI: one shot per click.
             if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(player, gun);
             else shoot(player, gun, item);
@@ -372,6 +391,7 @@ public final class ShootListener implements Listener {
         Gun gun = registry.gunOf(item);
         if (gun == null || gun.isSpyglass()) return;   // spyglass fires on left-click/swing
         event.setCancelled(true);
+        lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
         if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(player, gun);
         else shoot(player, gun, item);
     }
@@ -395,6 +415,18 @@ public final class ShootListener implements Listener {
         ammoBar.update(player, gun, registry.ammoOf(item), next, reserveRounds(player, gun));
     }
 
+    /** How long a LOADED gun is kept on item-cooldown (re-applied every tick, so the value only
+     *  has to be big enough that the 1-tick decay is invisible = the overlay reads as constantly,
+     *  completely white). See manageBobCooldown. */
+    private static final int GUN_COOLDOWN_TICKS = 200;
+
+    /** Since the bob-fix cooldown stops the crossbow from ever entering its vanilla "using" state,
+     *  isHandRaised() can no longer tell us the trigger is held for full-auto. Instead every
+     *  right-click refreshes a timestamp; auto keeps firing while clicks keep arriving within this
+     *  grace window and stops shortly after the trigger is released. */
+    private static final long AUTO_GRACE_MS = 300;
+    private final Map<UUID, Long> lastTrigger = new ConcurrentHashMap<>();
+
     /** Players currently auto-firing (one repeating task each). */
     private final Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
 
@@ -409,8 +441,11 @@ public final class ShootListener implements Listener {
             @Override public void run() {
                 ItemStack held = player.getInventory().getItemInMainHand();
                 Gun g = registry.gunOf(held);
+                Long last = lastTrigger.get(id);
+                boolean triggerHeld = last != null
+                    && (System.currentTimeMillis() - last) <= AUTO_GRACE_MS;
                 if (!player.isOnline() || g == null || !g.id().equals(gun.id())
-                    || !"auto".equals(registry.fireModeOf(held, g)) || !player.isHandRaised()
+                    || !"auto".equals(registry.fireModeOf(held, g)) || !triggerHeld
                     || registry.ammoOf(held) <= 0) {   // empty: stop so the player can reload
                     autoFiring.remove(id);
                     cancel();
