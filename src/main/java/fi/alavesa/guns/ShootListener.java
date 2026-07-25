@@ -1115,18 +1115,35 @@ public final class ShootListener implements Listener {
         return f < 0.62 ? "stomach" : "chest";
     }
 
+    /** Apply a gun's on-hit effect(s) to the thing it hit. A gun can now carry SEVERAL effects
+     *  at once, semicolon-separated, so a non-lethal weapon can stack a convincing jolt - e.g. a
+     *  TASER "slowness:6:80;weakness:3:80;nausea:1:80;blindness:1:30" (set its damage to 0 or ~0.5),
+     *  or a BB gun with just low damage and no effect. Each token is "bleed" or a potion name with
+     *  optional "POTION:level:ticks"; when level/ticks are omitted a token falls back to the gun's
+     *  effect-level / effect-ticks, so a plain single value (the old "slowness") behaves as before. */
     private void applyEffect(Player shooter, Gun gun, LivingEntity target) {
-        String effect = gun.effect() == null ? "none" : gun.effect().toLowerCase();
-        if (effect.equals("none") || effect.isEmpty()) return;
+        String raw = gun.effect() == null ? "none" : gun.effect().trim();
+        if (raw.isEmpty() || raw.equalsIgnoreCase("none")) return;
+        for (String token : raw.split(";")) applyOneEffect(shooter, gun, target, token.trim());
+    }
 
-        if (effect.equals("bleed")) {
-            // Custom bleed: effectLevel raw damage once per second while the timer runs
-            int pulses = Math.max(1, gun.effectTicks() / 20);
+    private void applyOneEffect(Player shooter, Gun gun, LivingEntity target, String token) {
+        if (token.isEmpty()) return;
+        String[] parts = token.split(":");
+        String name = parts[0].trim().toLowerCase();
+        if (name.equals("none")) return;
+        int level = parts.length > 1 ? parseIntOr(parts[1], gun.effectLevel()) : gun.effectLevel();
+        int ticks = parts.length > 2 ? parseIntOr(parts[2], gun.effectTicks()) : gun.effectTicks();
+
+        if (name.equals("bleed")) {
+            // Custom bleed: `level` raw damage once per second while the timer runs.
+            int pulses = Math.max(1, ticks / 20);
+            final int dps = Math.max(1, level);
             new BukkitRunnable() {
                 int left = pulses;
                 @Override public void run() {
                     if (left-- <= 0 || !target.isValid() || target.isDead()) { cancel(); return; }
-                    target.damage(Math.max(1, gun.effectLevel()), shooter);
+                    target.damage(dps, shooter);
                     target.getWorld().spawnParticle(Particle.DUST,
                         target.getLocation().add(0, target.getHeight() / 2, 0), 6, 0.2, 0.3, 0.2, 0, BLOOD);
                 }
@@ -1135,13 +1152,17 @@ public final class ShootListener implements Listener {
         }
 
         @SuppressWarnings("deprecation")
-        PotionEffectType type = PotionEffectType.getByName(effect);
+        PotionEffectType type = PotionEffectType.getByName(name);
         if (type == null) {
-            plugin.getLogger().warning("Gun '" + gun.id() + "' has unknown effect '" + gun.effect()
-                + "' - use 'bleed' or a potion effect name (poison, wither, slowness, glowing...).");
+            plugin.getLogger().warning("Gun '" + gun.id() + "' has unknown effect '" + token
+                + "' - use 'bleed' or a potion name (slowness, weakness, nausea, blindness, poison...).");
             return;
         }
-        target.addPotionEffect(new PotionEffect(type, gun.effectTicks(), Math.max(0, gun.effectLevel() - 1)));
+        target.addPotionEffect(new PotionEffect(type, Math.max(1, ticks), Math.max(0, level - 1)));
+    }
+
+    private int parseIntOr(String s, int def) {
+        try { return Integer.parseInt(s.trim()); } catch (NumberFormatException e) { return def; }
     }
 
     /** Draws up to maxPoints tracer particles; returns how many were spawned. */

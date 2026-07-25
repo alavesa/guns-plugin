@@ -14,9 +14,11 @@ public record Gun(
     int reloadTicks,
     String sound,
     float soundPitch,
-    String effect,     // "none", "bleed", or a potion effect name (poison, wither, slowness...)
-    int effectTicks,   // how long the effect lasts
-    int effectLevel,   // effect strength (bleed: damage per second; potions: amplifier+1)
+    String effect,     // "none", "bleed", a potion name, OR several ";"-separated effects for a
+                       // non-lethal jolt (e.g. taser "slowness:6:80;weakness:3:80;nausea:1:60").
+                       // Each token may carry its own "POTION:level:ticks" (else falls back below).
+    int effectTicks,   // default duration for effect tokens that don't specify their own
+    int effectLevel,   // default strength (bleed: damage per second; potions: amplifier+1)
     int ricochet,      // how many times a bullet bounces off blocks (0 = none)
     String magId,      // mag id this gun reloads from ("" = old loose-rounds reload)
     String base,       // "crossbow" (default) or "spyglass" - snipers scope for real
