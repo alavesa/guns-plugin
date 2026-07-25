@@ -318,22 +318,30 @@ public final class ShootListener implements Listener {
         item.setItemMeta(meta);
     }
 
-    /** The client only animates the crossbow pull if it thinks there's ammo to
-     *  load. Lend the player one arrow (tracked, reclaimed on reload/quit) if they
-     *  have none, so an empty gun still reloads with the real animation. Creative
-     *  charges without ammo, so no loan there. */
+    /** The client only animates the crossbow pull if it thinks there's ammo to load. Lend the
+     *  player one custom ROUND (custom NBT + texture, not a bare vanilla arrow) if they have no
+     *  arrow-type item, so an empty gun still reloads with the real animation. Tracked and
+     *  reclaimed on reload/quit. Creative charges without ammo, so no loan there. */
     private void lendArrowFor(Player player) {
         if (player.getGameMode() == GameMode.CREATIVE) return;
-        if (player.getInventory().contains(Material.ARROW)) return;
-        player.getInventory().addItem(new ItemStack(Material.ARROW));
+        if (player.getInventory().contains(Material.ARROW)) return;   // already has an arrow/round to pull
+        player.getInventory().addItem(registry.buildRound());
         lentArrow.add(player.getUniqueId());
     }
 
-    /** Take back the arrow we lent (if any) - the reload consumes a MAGAZINE, not
-     *  arrows, so the loaned round must never linger or be spent. */
+    /** Take back the ROUND we lent (if any) - the reload consumes a MAGAZINE, not rounds, so the
+     *  loaned round must never linger or be spent. Removes OUR tagged round specifically so a
+     *  player's real arrows are never touched. */
     private void reclaimLentArrow(Player player) {
-        if (lentArrow.remove(player.getUniqueId())) {
-            player.getInventory().removeItem(new ItemStack(Material.ARROW, 1));
+        if (!lentArrow.remove(player.getUniqueId())) return;
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int i = 0; i < contents.length; i++) {
+            if (registry.isRound(contents[i])) {
+                ItemStack it = contents[i];
+                it.setAmount(it.getAmount() - 1);
+                player.getInventory().setItem(i, it.getAmount() > 0 ? it : null);
+                return;
+            }
         }
     }
 

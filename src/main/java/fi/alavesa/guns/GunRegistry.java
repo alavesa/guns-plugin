@@ -55,6 +55,7 @@ public final class GunRegistry {
     private final NamespacedKey magCapacityKey;
     private final NamespacedKey fireModeKey;
     private final NamespacedKey instanceKey;
+    private final NamespacedKey roundKey;
     /** Live ammo per gun INSTANCE, held in RAM keyed by the item's instance id. Ammo lives
      *  here, NOT in the item, so firing never rewrites the held item - which is what made the
      *  gun re-equip/bob on the screen every shot on 1.21.2+/26.x. Seeded from the item's
@@ -75,6 +76,31 @@ public final class GunRegistry {
         this.magCapacityKey = new NamespacedKey(plugin, "mag_capacity");
         this.fireModeKey = new NamespacedKey(plugin, "fire_mode");
         this.instanceKey = new NamespacedKey(plugin, "gun_uid");
+        this.roundKey = new NamespacedKey(plugin, "round");
+    }
+
+    /** The chambering ROUND: a crossbow still needs a real arrow-type item to play its reload
+     *  pull, but instead of dropping a bare vanilla arrow in the player's bag we hand them this -
+     *  a custom-NBT (roundKey), custom-textured (custom_model_data "gun_round") arrow that reads
+     *  as a gun round and is reclaimed the instant the reload finishes. */
+    public ItemStack buildRound() {
+        ItemStack item = new ItemStack(Material.ARROW);
+        ItemMeta meta = item.getItemMeta();
+        meta.itemName(Component.text("Round")
+            .color(net.kyori.adventure.text.format.NamedTextColor.GRAY)
+            .decoration(TextDecoration.ITALIC, false));
+        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(List.of("gun_round"));
+        meta.setCustomModelDataComponent(cmd);
+        meta.getPersistentDataContainer().set(roundKey, PersistentDataType.BYTE, (byte) 1);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /** True if this is one of our chambering rounds (by NBT tag), not a player's real arrow. */
+    public boolean isRound(ItemStack item) {
+        return item != null && item.getType() == Material.ARROW && item.hasItemMeta()
+            && item.getItemMeta().getPersistentDataContainer().has(roundKey, PersistentDataType.BYTE);
     }
 
     /** The gun item's selected fire mode, defaulting to the gun's first offered
