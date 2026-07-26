@@ -240,7 +240,7 @@ public final class GunRegistry {
                     s.getString("fire-modes", "semi"),
                     clamp(id, "recoil", s.getDouble("recoil", 1.0), 0, 30),
                     (int) clamp(id, "pierce", s.getInt("pierce", 2), 0, 5),
-                    clamp(id, "h-recoil", s.getDouble("h-recoil", 0.0), 0, 30),
+                    clamp(id, "h-recoil", s.getDouble("h-recoil", 0.0), 0, 1),
                     clamp(id, "ricochet-angle", s.getDouble("ricochet-angle", 35.0), 0, 90),
                     s.getString("casing-dir", "1,0.6,-0.1"),
                     s.getString("casing-pos", "0.3,-0.2,0.35")

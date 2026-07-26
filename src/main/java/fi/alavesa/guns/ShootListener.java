@@ -66,6 +66,7 @@ public final class ShootListener implements Listener {
         this.bulletShooterKey = new NamespacedKey(plugin, "bullet_shooter");
         this.bulletBouncesKey = new NamespacedKey(plugin, "bullet_bounces");
         this.bulletBornKey = new NamespacedKey(plugin, "bullet_born");
+        this.speedRecoilKey = new NamespacedKey(plugin, "recoil_speed");
         this.gunAttackerKey = new NamespacedKey(plugin, "gun_attacker");
         this.gunAttackerAtKey = new NamespacedKey(plugin, "gun_attacker_at");
         this.registry = registry;
@@ -270,6 +271,13 @@ public final class ShootListener implements Listener {
             swapHeldModel(player, false);
         }
         reclaimLentArrow(player);
+        clearSpeedRecoil(player);   // never leave a recoil speed-dip on a leaving player
+    }
+
+    /** Strip any leftover recoil speed-dip on join (crash residue), so nobody logs in slowed. */
+    @org.bukkit.event.EventHandler
+    public void onJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        clearSpeedRecoil(event.getPlayer());
     }
 
     /** Guns are crossbows whose CHARGED state now mirrors their ammo: a gun with
@@ -777,48 +785,77 @@ public final class ShootListener implements Listener {
             .add(0, up, 0);
     }
 
-    /** Recoil feel. Vertical recoil (the camera pitch-pan) and the old backward knockback are
-     *  GONE. In their place a shot briefly dips the player's movement speed (a short Slowness):
-     *  the client renders the speed change as an FOV punch - the illusion of a recoil kick - and
-     *  the slow doubles as the knockback replacement (you can't run for a beat after firing, since
-     *  FOV can only be nudged through movement speed). The horizontal (left/right) camera jerk is
-     *  kept as a real yaw move. gun.recoil() is now the FOV-kick strength. */
+    /** Recoil feel, two independent parts:
+     *  - VERTICAL recoil (gun.recoil()): the view pans UP by that many degrees, smoothly over 10
+     *    small steps. A real camera move; no knockback, no FOV trick.
+     *  - MOVEMENT-SPEED recoil (gun.hRecoil()): every shot dips the player's actual movement-speed
+     *    ATTRIBUTE by a RANDOM amount (no potion effects), which the client shows as an FOV wobble
+     *    and stops them running steadily while firing. recoilSpeedTick eases it back off. */
     private void applyRecoil(Player player, Gun gun) {
         if (player.isInsideVehicle()) return;   // never disturb a seated (driving) player
 
-        // FOV kick + "can't run" (replaces vertical recoil AND knockback).
-        if (plugin.getConfig().getBoolean("fov-kick", true) && gun.recoil() > 0) {
-            int amp = Math.max(0, Math.min(4, (int) Math.round(gun.recoil()) - 1));
-            int ticks = Math.max(1, plugin.getConfig().getInt("fov-kick-ticks", 5));
-            player.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SLOWNESS, ticks, amp, true, false, false));
-        }
+        if (gun.hRecoil() > 0) applySpeedRecoil(player, gun.hRecoil());
 
-        // Horizontal recoil: a 50/50 quick left/right camera jerk over 10 small steps.
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
-        double side = gun.hRecoil();
-        if (side <= 0) return;
-        final int steps = 10;
-        final float perYaw = (float) (side / steps)
-            * (java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1f : -1f);
+        double up = gun.recoil();
+        if (up <= 0) return;
+        final int steps = 10;                    // 10 small steps = a smooth upward pan
+        final float per = (float) (up / steps);
         for (int i = 0; i < steps; i++) {
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                 if (!player.isOnline() || player.isInsideVehicle()) return;
                 try {
                     Location aim = player.getLocation();
-                    aim.setYaw(aim.getYaw() + perYaw);
-                    // X/Y/Z + pitch stay relative (untouched); only yaw is applied, so the view
-                    // jerks sideways with no position jump and no vertical movement.
+                    aim.setPitch((float) Math.max(-90.0, aim.getPitch() - per));
+                    // X/Y/Z + YAW stay relative (untouched); only pitch is applied, so the view
+                    // pans up smoothly with no position jump and no yaw drift.
                     player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
                         io.papermc.paper.entity.TeleportFlag.Relative.X,
                         io.papermc.paper.entity.TeleportFlag.Relative.Y,
                         io.papermc.paper.entity.TeleportFlag.Relative.Z,
-                        io.papermc.paper.entity.TeleportFlag.Relative.PITCH);
+                        io.papermc.paper.entity.TeleportFlag.Relative.YAW);
                 } catch (Throwable t) {
                     // recoil is cosmetic - never let it break firing
                 }
             }, i);   // ticks 0..9
         }
+    }
+
+    /** Dip the player's real movement-speed attribute by a fresh RANDOM amount for this shot. A
+     *  single keyed modifier is replaced each shot; recoilSpeedTick decays it back to nothing when
+     *  they stop firing, so nothing lingers. strength (gun.hRecoil, 0..1) is the max dip fraction. */
+    private void applySpeedRecoil(Player player, double strength) {
+        var attr = player.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
+        if (attr == null) return;
+        double maxDip = Math.min(0.85, Math.max(0.05, strength));
+        double dip = 0.05 + java.util.concurrent.ThreadLocalRandom.current().nextDouble() * (maxDip - 0.05);
+        if (attr.getModifier(speedRecoilKey) != null) attr.removeModifier(speedRecoilKey);
+        attr.addModifier(new org.bukkit.attribute.AttributeModifier(
+            speedRecoilKey, -dip, org.bukkit.attribute.AttributeModifier.Operation.MULTIPLY_SCALAR_1));
+    }
+
+    /** Ease every player's speed-recoil dip back toward zero and drop it once it's negligible, so a
+     *  burst wobbles the speed/FOV and it recovers the moment they stop shooting. */
+    public void recoilSpeedTick() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
+            if (attr == null) continue;
+            var m = attr.getModifier(speedRecoilKey);
+            if (m == null) continue;
+            double decayed = m.getAmount() * 0.55;
+            attr.removeModifier(speedRecoilKey);
+            if (Math.abs(decayed) > 0.02) {
+                attr.addModifier(new org.bukkit.attribute.AttributeModifier(
+                    speedRecoilKey, decayed, org.bukkit.attribute.AttributeModifier.Operation.MULTIPLY_SCALAR_1));
+            }
+        }
+    }
+
+    /** Strip any leftover speed-recoil modifier (on join/quit) so a crash mid-burst can't leave a
+     *  player permanently slowed. */
+    public void clearSpeedRecoil(Player p) {
+        var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
+        if (attr != null && attr.getModifier(speedRecoilKey) != null) attr.removeModifier(speedRecoilKey);
     }
 
     /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */
@@ -845,6 +882,7 @@ public final class ShootListener implements Listener {
     private final NamespacedKey bulletShooterKey;
     private final NamespacedKey bulletBouncesKey;
     private final NamespacedKey bulletBornKey;
+    private final NamespacedKey speedRecoilKey;
     /** Stamped on a player victim (shooter UUID + when) so gun kills credit the
      *  shooter in stats even when the killing blow is source-less (PvP off). */
     private final NamespacedKey gunAttackerKey;
