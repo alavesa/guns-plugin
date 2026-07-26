@@ -37,6 +37,8 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
+        getServer().getScheduler().runTaskTimer(this, shootListener::armorTick, 20L, 20L);   // vest slowness
+        getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
         // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks
@@ -176,6 +178,27 @@ public final class GunsPlugin extends JavaPlugin {
                         : grenade != null ? registry.buildGrenadeItem(grenade)
                         : registry.buildMagItem(mag));
                     sender.sendMessage(Component.text("Gave " + args[1].toLowerCase() + " to " + target.getName(), NamedTextColor.GOLD));
+                    return true;
+                }
+                case "armor", "armour", "vest" -> {
+                    if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
+                    if (args.length < 2 || !args[1].equalsIgnoreCase("give") || args.length < 3) {
+                        return error(sender, "/guns armor give <ultralight|light|ballistic|heavy|ultraheavy> [player]");
+                    }
+                    Armor vest = Armor.byId(args[2]);
+                    if (vest == null) return error(sender,
+                        "Vest types: ultralight, light, ballistic, heavy, ultraheavy");
+                    boolean other = args.length >= 4;
+                    if (other && !sender.hasPermission("guns.admin")) {
+                        return error(sender, "You can only give vests to yourself.");
+                    }
+                    Player target = other ? Bukkit.getPlayerExact(args[3])
+                        : (sender instanceof Player p ? p : null);
+                    if (target == null) return error(sender, "Player not found.");
+                    target.getInventory().addItem(registry.buildVest(vest)).values()
+                        .forEach(left -> target.getWorld().dropItemNaturally(target.getLocation(), left));
+                    sender.sendMessage(Component.text("Gave " + vest.display + " to " + target.getName(),
+                        NamedTextColor.GOLD));
                     return true;
                 }
                 case "create" -> {

@@ -28,7 +28,9 @@ public record Gun(
     double curve,      // how much the bullet arcs down mid-flight (0 = flat, higher = more arc)
     double aimSpread,  // launch inaccuracy in degrees while aiming (crouch) - tighter than spread
     String fireModes,  // which trigger modes it offers: "semi", "auto", or "semi,auto"
-    double recoil      // camera kick UP in degrees per shot (0 = none)
+    double recoil,     // camera kick UP in degrees per shot (0 = none)
+    int pierce         // bullet piercing level 1-5 (an Armor tier): defeats vests of tier <= this
+                       // outright; vests above it may stop the round. 0 = pierces no vest.
 ) {
 
     /** The trigger modes this gun offers, in order (first is the default). */

@@ -28,7 +28,7 @@ public final class GunRegistry {
     public static final Set<String> GUN_EDITABLE = Set.of(
         "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
         "sound", "soundpitch", "effect", "effectticks", "effectlevel", "ricochet", "mag",
-        "speed", "curve", "spread", "aimspread", "firemodes", "recoil");
+        "speed", "curve", "spread", "aimspread", "firemodes", "recoil", "pierce");
 
     public static final Set<String> GRENADE_EDITABLE = Set.of(
         "name", "model", "power", "fuseticks", "velocity", "breakblocks");
@@ -56,6 +56,8 @@ public final class GunRegistry {
     private final NamespacedKey fireModeKey;
     private final NamespacedKey instanceKey;
     private final NamespacedKey roundKey;
+    private final NamespacedKey vestTierKey;
+    private final NamespacedKey vestProtKey;
     /** Live ammo per gun INSTANCE, held in RAM keyed by the item's instance id. Ammo lives
      *  here, NOT in the item, so firing never rewrites the held item - which is what made the
      *  gun re-equip/bob on the screen every shot on 1.21.2+/26.x. Seeded from the item's
@@ -77,6 +79,55 @@ public final class GunRegistry {
         this.fireModeKey = new NamespacedKey(plugin, "fire_mode");
         this.instanceKey = new NamespacedKey(plugin, "gun_uid");
         this.roundKey = new NamespacedKey(plugin, "round");
+        this.vestTierKey = new NamespacedKey(plugin, "vest_tier");
+        this.vestProtKey = new NamespacedKey(plugin, "vest_prot");
+    }
+
+    /** Build a ballistic vest (a dyed, chest-slot leather chestplate carrying its tier + a
+     *  protection stat that degrades as it's shot). */
+    public ItemStack buildVest(Armor a) {
+        ItemStack item = new ItemStack(Material.LEATHER_CHESTPLATE);
+        org.bukkit.inventory.meta.LeatherArmorMeta meta =
+            (org.bukkit.inventory.meta.LeatherArmorMeta) item.getItemMeta();
+        meta.setColor(a.dye);
+        meta.itemName(Component.text(a.display, a.color).decoration(TextDecoration.ITALIC, false));
+        java.util.List<Component> lore = new java.util.ArrayList<>();
+        lore.add(Component.text("Stops rounds rated tier " + a.tier + " and below.",
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        if (a.slowness >= 0) lore.add(Component.text("Heavy - slows the wearer.",
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        meta.lore(lore);
+        meta.setUnbreakable(true);
+        meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE, ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
+        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(List.of(a.model()));
+        meta.setCustomModelDataComponent(cmd);
+        meta.getPersistentDataContainer().set(vestTierKey, PersistentDataType.INTEGER, a.tier);
+        meta.getPersistentDataContainer().set(vestProtKey, PersistentDataType.INTEGER, 100);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /** The vest tier of an item (1-5), or 0 if it isn't one of our vests. */
+    public int vestTier(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return 0;
+        return item.getItemMeta().getPersistentDataContainer()
+            .getOrDefault(vestTierKey, PersistentDataType.INTEGER, 0);
+    }
+
+    /** Remaining protection (0-100) of a vest. */
+    public int vestProt(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return 0;
+        return item.getItemMeta().getPersistentDataContainer()
+            .getOrDefault(vestProtKey, PersistentDataType.INTEGER, 100);
+    }
+
+    /** Write a vest's remaining protection back onto the item (caller re-equips it). */
+    public void setVestProt(ItemStack item, int prot) {
+        if (item == null || !item.hasItemMeta()) return;
+        ItemMeta meta = item.getItemMeta();
+        meta.getPersistentDataContainer().set(vestProtKey, PersistentDataType.INTEGER, Math.max(0, prot));
+        item.setItemMeta(meta);
     }
 
     /** The chambering ROUND: a crossbow still needs a real arrow-type item to play its reload
@@ -186,7 +237,8 @@ public final class GunRegistry {
                         s.getDouble("aim-spread", clamp(id, "spread", s.getDouble("spread", 2.0), 0, 30) * 0.3),
                         0, 30),
                     s.getString("fire-modes", "semi"),
-                    clamp(id, "recoil", s.getDouble("recoil", 1.0), 0, 30)
+                    clamp(id, "recoil", s.getDouble("recoil", 1.0), 0, 30),
+                    (int) clamp(id, "pierce", s.getInt("pierce", 2), 0, 5)
                 ));
             }
         }
@@ -387,7 +439,7 @@ public final class GunRegistry {
                     yaml.set(path + "fire-modes", ok.isEmpty() ? "semi" : String.join(",", ok));
                 }
                 case "name", "model", "sound", "effect" -> yaml.set(path + yamlKey(statKey), value);
-                case "magazine", "reloadticks", "effectticks", "effectlevel", "ricochet" -> {
+                case "magazine", "reloadticks", "effectticks", "effectlevel", "ricochet", "pierce" -> {
                     Integer n = parseInt(value);
                     if (n == null) return "Not a whole number: " + value;
                     yaml.set(path + yamlKey(statKey), n);

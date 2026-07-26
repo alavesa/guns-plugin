@@ -84,6 +84,9 @@ public final class ShootListener implements Listener {
     /** The custom_model_data suffix for the empty-magazine (reloading) model state. */
     private static final String EMPTY_SUFFIX = "_emptymag";
 
+    /** Scoreboard tag on every bullet-hole decal, so leftovers can be swept on enable. */
+    public static final String TAG_BULLET_HOLE = "guns.bullethole";
+
     /** Players we lent a single arrow to so the client would animate the crossbow
      *  reload pull; reclaimed when the reload lands (or on quit). */
     private final Set<UUID> lentArrow = ConcurrentHashMap.newKeySet();
@@ -998,6 +1001,12 @@ public final class ShootListener implements Listener {
         org.bukkit.entity.ItemDisplay disp = wall.getWorld().spawn(loc,
             org.bukkit.entity.ItemDisplay.class, d -> {
                 d.setItemStack(holeItem);
+                // NEVER persist a bullet hole: if the server stops/crashes before its 15s removal
+                // task runs, a persistent display would linger forever. Non-persistent displays
+                // aren't saved with the chunk, so they're gone on restart no matter what. The tag
+                // lets onEnable sweep any legacy (persistent) holes left by older versions.
+                d.setPersistent(false);
+                d.addScoreboardTag(TAG_BULLET_HOLE);
                 // FIXED = the item-frame context: the flat item is centred and faces
                 // outward, exactly like a picture on a wall - the right base for a decal.
                 d.setItemDisplayTransform(org.bukkit.entity.ItemDisplay.ItemDisplayTransform.FIXED);
@@ -1054,6 +1063,17 @@ public final class ShootListener implements Listener {
             };
         }
 
+        // Ballistic armour: a worn vest may absorb the round, get chewed up, or shatter. This
+        // returns the damage that actually reaches the player (0 if the vest ate it).
+        if (target instanceof Player armored) {
+            damage = resolveArmor(armored, gun, damage);
+            if (damage <= 0) {   // fully absorbed - no hit to deal, but still show the impact spark
+                target.getWorld().spawnParticle(Particle.CRIT, end, 6, 0.1, 0.1, 0.1, 0.03);
+                target.setVelocity(target.getVelocity());
+                return;
+            }
+        }
+
         // A bullet is not a knockback stick: keep the victim's own momentum through
         // the hit so a gunner can't shove a melee player away for free. We snapshot
         // the velocity and restore it right after the damage (which is where vanilla
@@ -1105,6 +1125,72 @@ public final class ShootListener implements Listener {
             }
         }
         applyEffect(shooter, gun, target);
+    }
+
+    /** Run a bullet against the victim's worn vest. Returns the damage that reaches the player:
+     *  0 if the vest absorbed it, else the (near-)full amount. Degrades or shatters the vest.
+     *  - round outclasses the vest (pierce >= tier): punches through, vest shatters, full damage.
+     *  - vest rated above the round (pierce < tier): 55% absorb / 45% pierce, scaled by wear; the
+     *    vest loses 33% (one tier up) or 20% (higher) protection per hit, +5% more on a pierce,
+     *    and shatters at 0%. */
+    private double resolveArmor(Player victim, Gun gun, double damage) {
+        ItemStack chest = victim.getInventory().getChestplate();
+        int vTier = registry.vestTier(chest);
+        if (vTier <= 0) return damage;                 // not wearing a vest
+        int pierce = gun.pierce();
+
+        if (pierce >= vTier) {                          // outclassed -> straight through, shatters
+            breakVest(victim);
+            return damage;
+        }
+
+        int prot = registry.vestProt(chest);
+        double absorbChance = 0.55 * (prot / 100.0);
+        boolean absorbed = java.util.concurrent.ThreadLocalRandom.current().nextDouble() < absorbChance;
+        int wear = (vTier == pierce + 1) ? 33 : 20;     // 33% one tier above, 20% for higher tiers
+        if (!absorbed) wear += 5;                        // a pierce chews it a bit more
+        int newProt = prot - wear;
+
+        if (newProt <= 0) breakVest(victim);
+        else { registry.setVestProt(chest, newProt); victim.getInventory().setChestplate(chest); }
+
+        if (absorbed) {
+            victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BLOCK, 1f, 0.8f);
+            Msg.actionbar(victim, Component.text("Vest absorbed the round (" + Math.max(0, newProt) + "%)",
+                NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
+            return 0;
+        }
+        victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_TRIDENT_HIT, 1f, 1.2f);
+        Msg.actionbar(victim, Component.text("Your vest was pierced!", NamedTextColor.RED)
+            .decorate(TextDecoration.ITALIC));
+        return damage;
+    }
+
+    private void breakVest(Player victim) {
+        victim.getInventory().setChestplate(null);
+        victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BREAK, 1f, 0.7f);
+        Msg.actionbar(victim, Component.text("Your ballistic vest shattered!", NamedTextColor.RED)
+            .decorate(TextDecoration.ITALIC));
+    }
+
+    /** Sweep away any bullet-hole decals left in loaded chunks - called on enable to clear
+     *  legacy persistent holes from older versions (new ones are non-persistent). */
+    public void sweepBulletHoles() {
+        for (org.bukkit.World w : plugin.getServer().getWorlds()) {
+            for (org.bukkit.entity.ItemDisplay d : w.getEntitiesByClass(org.bukkit.entity.ItemDisplay.class)) {
+                if (d.getScoreboardTags().contains(TAG_BULLET_HOLE)) d.remove();
+            }
+        }
+    }
+
+    /** Once a second: heavy vests (BALLISTIC and up) slow the wearer, heaviest most. */
+    public void armorTick() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            Armor a = Armor.byTier(registry.vestTier(p.getInventory().getChestplate()));
+            if (a == null || a.slowness < 0) continue;
+            p.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                org.bukkit.potion.PotionEffectType.SLOWNESS, 40, a.slowness, true, false, false));
+        }
     }
 
     /** Which body part the shot at `end` (the ray's hit position) struck, judged by height
