@@ -702,6 +702,7 @@ public final class ShootListener implements Listener {
         // muzzle flash: a small white spark burst at the barrel
         player.getWorld().spawnParticle(Particle.DUST, muzzle, 6, 0.03, 0.03, 0.03, 0,
             new Particle.DustOptions(Color.WHITE, 0.7f));
+        ejectCasing(player, gun);   // fling a spent casing out of the ejection port
 
         // CLOSE-RANGE HITSCAN: a fast no-gravity arrow covers its ENTIRE first tick of
         // travel (several blocks) before the per-tick tracker runs, so a nearby wall is
@@ -797,26 +798,33 @@ public final class ShootListener implements Listener {
                 player.setVelocity(vel.add(back.normalize().multiply(-kb)));
             }
         }
-        // Camera recoil (a smooth 3-tick view pan up) is back ON by default.
+        // Camera recoil is back ON by default. It's now spread over 10 small bursts (was 3) so
+        // the climb is gradual and easy to pull back down. VERTICAL = up pan; HORIZONTAL = a
+        // 50/50 quick jerk left or right per shot (gun.hRecoil).
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
-        if (gun.recoil() <= 0 || player.isInsideVehicle()) return;
-        final int steps = 3;                               // ~3 ticks = a fast, smooth pan
-        final float per = (float) gun.recoil() / steps;
+        double up = gun.recoil(), side = gun.hRecoil();
+        if ((up <= 0 && side <= 0) || player.isInsideVehicle()) return;
+        final int steps = 10;
+        final float perUp = (float) (up / steps);
+        final float perYaw = (float) (side / steps)
+            * (java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1f : -1f);
         for (int i = 0; i < steps; i++) {
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                 if (!player.isOnline() || player.isInsideVehicle()) return;
                 try {
                     Location aim = player.getLocation();
-                    aim.setPitch((float) Math.max(-90.0, aim.getPitch() - per));
+                    aim.setPitch((float) Math.max(-90.0, aim.getPitch() - perUp));
+                    aim.setYaw(aim.getYaw() + perYaw);
+                    // Only X/Y/Z stay relative (position untouched); pitch AND yaw are applied so
+                    // the view pans up and jerks sideways without a position jump.
                     player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
                         io.papermc.paper.entity.TeleportFlag.Relative.X,
                         io.papermc.paper.entity.TeleportFlag.Relative.Y,
-                        io.papermc.paper.entity.TeleportFlag.Relative.Z,
-                        io.papermc.paper.entity.TeleportFlag.Relative.YAW);
+                        io.papermc.paper.entity.TeleportFlag.Relative.Z);
                 } catch (Throwable t) {
                     // recoil is cosmetic - never let it break firing
                 }
-            }, i);   // ticks 0, 1, 2
+            }, i);   // ticks 0..9
         }
     }
 
@@ -908,9 +916,10 @@ public final class ShootListener implements Listener {
                             shatterGlass(b);   // punch through, keep flying
                         } else {
                             int bounces = pdc.getOrDefault(bulletBouncesKey, PersistentDataType.INTEGER, 0);
-                            if (bounces > 0 && blk.getHitBlockFace() != null) {
-                                Vector normal = blk.getHitBlockFace().getDirection();
-                                bullet.setVelocity(vel.subtract(normal.multiply(2 * vel.dot(normal))));
+                            Vector nrm = blk.getHitBlockFace() == null ? null : blk.getHitBlockFace().getDirection();
+                            if (bounces > 0 && nrm != null
+                                    && canRicochet(vel, nrm, gun == null ? 0 : gun.ricochetAngle())) {
+                                bullet.setVelocity(vel.subtract(nrm.multiply(2 * vel.dot(nrm))));
                                 pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, bounces - 1);
                                 bullet.getWorld().playSound(from, "minecraft:block.chain.hit", 0.7f, 1.8f);
                             } else {
@@ -959,12 +968,14 @@ public final class ShootListener implements Listener {
             if (bounces > 0 && event.getHitBlockFace() != null && gun != null) {
                 Vector normal = event.getHitBlockFace().getDirection();
                 Vector v = bullet.getVelocity();
-                Vector reflected = v.subtract(normal.multiply(2 * v.dot(normal)));
-                event.setCancelled(true);
-                bullet.setVelocity(reflected);
-                pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, bounces - 1);
-                bullet.getWorld().playSound(bullet.getLocation(), "minecraft:block.chain.hit", 0.7f, 1.8f);
-                return;
+                if (canRicochet(v, normal, gun.ricochetAngle())) {
+                    Vector reflected = v.subtract(normal.multiply(2 * v.dot(normal)));
+                    event.setCancelled(true);
+                    bullet.setVelocity(reflected);
+                    pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, bounces - 1);
+                    bullet.getWorld().playSound(bullet.getLocation(), "minecraft:block.chain.hit", 0.7f, 1.8f);
+                    return;
+                }
             }
             bullet.getWorld().spawnParticle(Particle.SMOKE, bullet.getLocation(), 3, 0.05, 0.05, 0.05, 0.01);
             spawnBulletHole(event.getHitBlock(), bullet.getLocation(), event.getHitBlockFace());
@@ -1007,6 +1018,8 @@ public final class ShootListener implements Listener {
                 // lets onEnable sweep any legacy (persistent) holes left by older versions.
                 d.setPersistent(false);
                 d.addScoreboardTag(TAG_BULLET_HOLE);
+                d.getPersistentDataContainer().set(bulletBornKey, PersistentDataType.LONG,
+                    System.currentTimeMillis());
                 // FIXED = the item-frame context: the flat item is centred and faces
                 // outward, exactly like a picture on a wall - the right base for a decal.
                 d.setItemDisplayTransform(org.bukkit.entity.ItemDisplay.ItemDisplayTransform.FIXED);
@@ -1173,14 +1186,77 @@ public final class ShootListener implements Listener {
             .decorate(TextDecoration.ITALIC));
     }
 
-    /** Sweep away any bullet-hole decals left in loaded chunks - called on enable to clear
-     *  legacy persistent holes from older versions (new ones are non-persistent). */
+    /** Sweep ALL bullet-hole decals in loaded chunks - called once on enable to clear legacy
+     *  persistent holes from older versions (new ones are non-persistent). */
     public void sweepBulletHoles() {
         for (org.bukkit.World w : plugin.getServer().getWorlds()) {
             for (org.bukkit.entity.ItemDisplay d : w.getEntitiesByClass(org.bukkit.entity.ItemDisplay.class)) {
                 if (d.getScoreboardTags().contains(TAG_BULLET_HOLE)) d.remove();
             }
         }
+    }
+
+    /** Safety net: remove any bullet hole older than 15s whose own removal task was lost (e.g. a
+     *  crash/restart right as it spawned). Runs periodically; born-time is stamped on each hole. */
+    public void sweepAgedBulletHoles() {
+        long now = System.currentTimeMillis();
+        for (org.bukkit.World w : plugin.getServer().getWorlds()) {
+            for (org.bukkit.entity.ItemDisplay d : w.getEntitiesByClass(org.bukkit.entity.ItemDisplay.class)) {
+                if (!d.getScoreboardTags().contains(TAG_BULLET_HOLE)) continue;
+                long born = d.getPersistentDataContainer().getOrDefault(bulletBornKey, PersistentDataType.LONG, 0L);
+                if (born == 0L || now - born >= 15_000L) d.remove();
+            }
+        }
+    }
+
+    /** Ricochet only on a shallow/grazing hit: the angle between the round's path and the SURFACE
+     *  must be <= maxSurfaceAngle degrees. A head-on hit (near the normal) never bounces. 0 = off. */
+    private boolean canRicochet(Vector velocity, Vector normal, double maxSurfaceAngle) {
+        if (maxSurfaceAngle <= 0 || velocity.lengthSquared() < 1e-9) return false;
+        Vector v = velocity.clone().normalize();
+        Vector n = normal.clone().normalize();
+        double angleToNormal = Math.toDegrees(Math.acos(Math.min(1.0, Math.abs(v.dot(n)))));
+        return (90.0 - angleToNormal) <= maxSurfaceAngle;
+    }
+
+    /** Eject a small custom-modelled brass casing on each shot. Direction + spawn offset are the
+     *  gun's casingDir / casingPos ("right,up,forward" relative to aim); "off" disables it. */
+    private void ejectCasing(Player player, Gun gun) {
+        String dirSpec = gun.casingDir();
+        if (dirSpec == null || dirSpec.equalsIgnoreCase("off") || dirSpec.equalsIgnoreCase("none")) return;
+        double[] d = parse3(dirSpec, new double[]{1, 0.6, -0.1});
+        double[] o = parse3(gun.casingPos(), new double[]{0.3, -0.2, 0.35});
+        Vector fwd = player.getEyeLocation().getDirection().normalize();
+        Vector up = new Vector(0, 1, 0);
+        Vector right = fwd.clone().crossProduct(up);
+        if (right.lengthSquared() < 1e-6) right = new Vector(1, 0, 0); else right.normalize();
+        Location spawn = player.getEyeLocation().clone()
+            .add(right.clone().multiply(o[0])).add(0, o[1], 0).add(fwd.clone().multiply(o[2]));
+        var rnd = java.util.concurrent.ThreadLocalRandom.current();
+        Vector vel = right.clone().multiply(d[0]).add(up.clone().multiply(d[1])).add(fwd.clone().multiply(d[2]))
+            .multiply(0.18)
+            .add(new Vector((rnd.nextDouble() - 0.5) * 0.05, rnd.nextDouble() * 0.04, (rnd.nextDouble() - 0.5) * 0.05));
+        ItemStack casing = new ItemStack(org.bukkit.Material.IRON_NUGGET);
+        var meta = casing.getItemMeta();
+        var cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(java.util.List.of("bullet_casing"));
+        meta.setCustomModelDataComponent(cmd);
+        casing.setItemMeta(meta);
+        org.bukkit.entity.Item drop = player.getWorld().dropItem(spawn, casing);
+        drop.setVelocity(vel);
+        drop.setPickupDelay(Integer.MAX_VALUE);   // never picked up
+        drop.setPersistent(false);
+        plugin.getServer().getScheduler().runTaskLater(plugin,
+            () -> { if (drop.isValid()) drop.remove(); }, 40L);   // 2s then gone
+        player.getWorld().playSound(spawn, "minecraft:block.metal.hit", 0.25f, 1.9f);
+    }
+
+    private double[] parse3(String s, double[] def) {
+        if (s == null) return def;
+        String[] p = s.split("[ ,]+");
+        if (p.length != 3) return def;
+        try { return new double[]{Double.parseDouble(p[0]), Double.parseDouble(p[1]), Double.parseDouble(p[2])}; }
+        catch (NumberFormatException e) { return def; }
     }
 
     /** Once a second: heavy vests (BALLISTIC and up) slow the wearer, heaviest most. */

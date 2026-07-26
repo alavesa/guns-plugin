@@ -29,8 +29,13 @@ public record Gun(
     double aimSpread,  // launch inaccuracy in degrees while aiming (crouch) - tighter than spread
     String fireModes,  // which trigger modes it offers: "semi", "auto", or "semi,auto"
     double recoil,     // camera kick UP in degrees per shot (0 = none)
-    int pierce         // bullet piercing level 1-5 (an Armor tier): defeats vests of tier <= this
+    int pierce,        // bullet piercing level 1-5 (an Armor tier): defeats vests of tier <= this
                        // outright; vests above it may stop the round. 0 = pierces no vest.
+    double hRecoil,    // horizontal (left/right) kick in degrees per shot; a 50/50 side each shot
+    double ricochetAngle, // max angle (deg) FROM THE SURFACE for a ricochet: only shallow/grazing
+                          // hits bounce; a head-on hit never does. 0 = angle gate off (no ricochet)
+    String casingDir,  // ejected-casing velocity as "right,up,forward" (relative to aim); "off" = none
+    String casingPos   // casing spawn offset as "right,up,forward" from the eye
 ) {
 
     /** The trigger modes this gun offers, in order (first is the default). */

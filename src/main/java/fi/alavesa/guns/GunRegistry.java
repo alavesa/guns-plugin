@@ -28,7 +28,8 @@ public final class GunRegistry {
     public static final Set<String> GUN_EDITABLE = Set.of(
         "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
         "sound", "soundpitch", "effect", "effectticks", "effectlevel", "ricochet", "mag",
-        "speed", "curve", "spread", "aimspread", "firemodes", "recoil", "pierce");
+        "speed", "curve", "spread", "aimspread", "firemodes", "recoil", "pierce",
+        "hrecoil", "ricochetangle", "casingdir", "casingpos");
 
     public static final Set<String> GRENADE_EDITABLE = Set.of(
         "name", "model", "power", "fuseticks", "velocity", "breakblocks");
@@ -238,7 +239,11 @@ public final class GunRegistry {
                         0, 30),
                     s.getString("fire-modes", "semi"),
                     clamp(id, "recoil", s.getDouble("recoil", 1.0), 0, 30),
-                    (int) clamp(id, "pierce", s.getInt("pierce", 2), 0, 5)
+                    (int) clamp(id, "pierce", s.getInt("pierce", 2), 0, 5),
+                    clamp(id, "h-recoil", s.getDouble("h-recoil", 0.0), 0, 30),
+                    clamp(id, "ricochet-angle", s.getDouble("ricochet-angle", 35.0), 0, 90),
+                    s.getString("casing-dir", "1,0.6,-0.1"),
+                    s.getString("casing-pos", "0.3,-0.2,0.35")
                 ));
             }
         }
@@ -444,7 +449,19 @@ public final class GunRegistry {
                     if (n == null) return "Not a whole number: " + value;
                     yaml.set(path + yamlKey(statKey), n);
                 }
-                default -> {
+                case "casingdir", "casingpos" -> {
+                    String key3 = statKey.equals("casingdir") ? "casing-dir" : "casing-pos";
+                    String v = value.trim();
+                    if (v.equalsIgnoreCase("off") || v.equalsIgnoreCase("none")) {
+                        yaml.set(path + key3, "off");
+                    } else {
+                        String[] p = v.split("[ ,]+");
+                        if (p.length != 3) return "Give three numbers: <right> <up> <forward> (or 'off').";
+                        for (String s2 : p) if (parseDouble(s2) == null) return "Not a number: " + s2;
+                        yaml.set(path + key3, p[0] + "," + p[1] + "," + p[2]);
+                    }
+                }
+                default -> {   // hrecoil, ricochetangle, and the other doubles
                     Double d = parseDouble(value);
                     if (d == null) return "Not a number: " + value;
                     yaml.set(path + yamlKey(statKey), d);
@@ -501,6 +518,8 @@ public final class GunRegistry {
             case "firemodes" -> "fire-modes";
             case "fuseticks" -> "fuse-ticks";
             case "breakblocks" -> "break-blocks";
+            case "hrecoil" -> "h-recoil";
+            case "ricochetangle" -> "ricochet-angle";
             default -> stat;
         };
     }
