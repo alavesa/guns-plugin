@@ -31,9 +31,8 @@ public record Gun(
     double recoil,     // VERTICAL recoil: degrees the view pans UP per shot, smoothly (0 = none).
     int pierce,        // bullet piercing level 1-5 (an Armor tier): defeats vests of tier <= this
                        // outright; vests above it may stop the round. 0 = pierces no vest.
-    double hRecoil,    // MOVEMENT-SPEED recoil: max dip fraction (0..1) of the real movement-speed
-                       // attribute, applied by a fresh RANDOM amount each shot (no potions) - reads
-                       // as an FOV wobble + can't-run-while-firing. 0 = none.
+    double hRecoil,    // HORIZONTAL recoil: degrees the view jerks left/right per shot (a random
+                       // side each time), sent via the rotation-only position packet. 0 = none.
     double ricochetAngle, // max angle (deg) FROM THE SURFACE for a ricochet: only shallow/grazing
                           // hits bounce; a head-on hit never does. 0 = angle gate off (no ricochet)
     String casingDir,  // ejected-casing velocity as "right,up,forward" (relative to aim); "off" = none
