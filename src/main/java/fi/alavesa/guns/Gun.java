@@ -28,7 +28,9 @@ public record Gun(
     double curve,      // how much the bullet arcs down mid-flight (0 = flat, higher = more arc)
     double aimSpread,  // launch inaccuracy in degrees while aiming (crouch) - tighter than spread
     String fireModes,  // which trigger modes it offers: "semi", "auto", or "semi,auto"
-    double recoil,     // camera kick UP in degrees per shot (0 = none)
+    double recoil,     // FOV-KICK strength per shot (0 = none). No longer a camera pan: a shot
+                       // dips movement speed briefly so the client punches the FOV (recoil feel)
+                       // and the player can't run for a beat (the knockback replacement).
     int pierce,        // bullet piercing level 1-5 (an Armor tier): defeats vests of tier <= this
                        // outright; vests above it may stop the round. 0 = pierces no vest.
     double hRecoil,    // horizontal (left/right) kick in degrees per shot; a 50/50 side each shot

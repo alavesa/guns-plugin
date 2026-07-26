@@ -777,35 +777,28 @@ public final class ShootListener implements Listener {
             .add(0, up, 0);
     }
 
-    /** Camera recoil: pan the view UP by the gun's recoil, but SMOOTHLY over a few
-     *  ticks (a quick smooth pan, not a single instant snap). Each step is a RELATIVE
-     *  teleport so momentum is preserved; wrapped so a failed teleport never aborts
-     *  the shot; skipped while riding (it would dismount a passenger). */
+    /** Recoil feel. Vertical recoil (the camera pitch-pan) and the old backward knockback are
+     *  GONE. In their place a shot briefly dips the player's movement speed (a short Slowness):
+     *  the client renders the speed change as an FOV punch - the illusion of a recoil kick - and
+     *  the slow doubles as the knockback replacement (you can't run for a beat after firing, since
+     *  FOV can only be nudged through movement speed). The horizontal (left/right) camera jerk is
+     *  kept as a real yaw move. gun.recoil() is now the FOV-kick strength. */
     private void applyRecoil(Player player, Gun gun) {
-        if (player.isInsideVehicle()) return;   // never shove a seated (driving) player
-        // Knockback: a small backward nudge on a single shot. NEVER while sprinting (setVelocity
-        // resets a running player's momentum = the "running + shooting stops me" bug) and never
-        // during full-auto (per-tick setVelocity freezes movement). Horizontal only, so no hop.
-        double kb = plugin.getConfig().getDouble("knockback", 0.05);
-        Vector vel = player.getVelocity();
-        boolean movingHorizontally = Math.hypot(vel.getX(), vel.getZ()) > 0.08;
-        // Only nudge a player who is STANDING STILL on the ground - so knockback can never
-        // interrupt someone who's walking/running (setVelocity would cancel their momentum).
-        if (kb > 0 && !movingHorizontally && player.isOnGround()
-            && !player.isSprinting() && !autoFiring.contains(player.getUniqueId())) {
-            Vector back = player.getEyeLocation().getDirection().clone().setY(0.0);
-            if (back.lengthSquared() > 1e-6) {
-                player.setVelocity(vel.add(back.normalize().multiply(-kb)));
-            }
+        if (player.isInsideVehicle()) return;   // never disturb a seated (driving) player
+
+        // FOV kick + "can't run" (replaces vertical recoil AND knockback).
+        if (plugin.getConfig().getBoolean("fov-kick", true) && gun.recoil() > 0) {
+            int amp = Math.max(0, Math.min(4, (int) Math.round(gun.recoil()) - 1));
+            int ticks = Math.max(1, plugin.getConfig().getInt("fov-kick-ticks", 5));
+            player.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                org.bukkit.potion.PotionEffectType.SLOWNESS, ticks, amp, true, false, false));
         }
-        // Camera recoil is back ON by default. It's now spread over 10 small bursts (was 3) so
-        // the climb is gradual and easy to pull back down. VERTICAL = up pan; HORIZONTAL = a
-        // 50/50 quick jerk left or right per shot (gun.hRecoil).
+
+        // Horizontal recoil: a 50/50 quick left/right camera jerk over 10 small steps.
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
-        double up = gun.recoil(), side = gun.hRecoil();
-        if ((up <= 0 && side <= 0) || player.isInsideVehicle()) return;
+        double side = gun.hRecoil();
+        if (side <= 0) return;
         final int steps = 10;
-        final float perUp = (float) (up / steps);
         final float perYaw = (float) (side / steps)
             * (java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1f : -1f);
         for (int i = 0; i < steps; i++) {
@@ -813,14 +806,14 @@ public final class ShootListener implements Listener {
                 if (!player.isOnline() || player.isInsideVehicle()) return;
                 try {
                     Location aim = player.getLocation();
-                    aim.setPitch((float) Math.max(-90.0, aim.getPitch() - perUp));
                     aim.setYaw(aim.getYaw() + perYaw);
-                    // Only X/Y/Z stay relative (position untouched); pitch AND yaw are applied so
-                    // the view pans up and jerks sideways without a position jump.
+                    // X/Y/Z + pitch stay relative (untouched); only yaw is applied, so the view
+                    // jerks sideways with no position jump and no vertical movement.
                     player.teleport(aim, org.bukkit.event.player.PlayerTeleportEvent.TeleportCause.PLUGIN,
                         io.papermc.paper.entity.TeleportFlag.Relative.X,
                         io.papermc.paper.entity.TeleportFlag.Relative.Y,
-                        io.papermc.paper.entity.TeleportFlag.Relative.Z);
+                        io.papermc.paper.entity.TeleportFlag.Relative.Z,
+                        io.papermc.paper.entity.TeleportFlag.Relative.PITCH);
                 } catch (Throwable t) {
                     // recoil is cosmetic - never let it break firing
                 }
