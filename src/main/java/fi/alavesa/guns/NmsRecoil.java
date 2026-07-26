@@ -21,6 +21,8 @@ public final class NmsRecoil {
     private static boolean ok = false;
     private static Constructor<?> pmrCtor;   // PositionMoveRotation(Vec3, Vec3, float yRot, float xRot)
     private static Constructor<?> pktCtor;   // ClientboundPlayerPositionPacket(int, PositionMoveRotation, Set)
+    private static Constructor<?> vec3Ctor;  // Vec3(double, double, double)
+    private static Constructor<?> motionCtor;// ClientboundSetEntityMotionPacket(int, Vec3)
     private static Object vec3Zero;
     private static Object relativesSet;      // EnumSet {X, Y, Z, X_ROT, Y_ROT}
     private static Class<?> packetClass;
@@ -34,6 +36,9 @@ public final class NmsRecoil {
         try {
             Class<?> vec3 = Class.forName("net.minecraft.world.phys.Vec3");
             vec3Zero = vec3.getField("ZERO").get(null);
+            vec3Ctor = vec3.getConstructor(double.class, double.class, double.class);
+            Class<?> motion = Class.forName("net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket");
+            motionCtor = motion.getConstructor(int.class, vec3);
             Class<?> pmr = Class.forName("net.minecraft.world.entity.PositionMoveRotation");
             pmrCtor = pmr.getConstructor(vec3, vec3, float.class, float.class);
             Class<?> rel = Class.forName("net.minecraft.world.entity.Relative");
@@ -68,6 +73,21 @@ public final class NmsRecoil {
             return true;
         } catch (Throwable t) {
             ok = false;   // stop trying; caller falls back to teleport
+            return false;
+        }
+    }
+
+    /** Push the player's own client entity with a one-off velocity (the recoil "kick") - a motion
+     *  packet, so the camera lurches without the server changing the player's movement speed. */
+    public static boolean sendMotion(Player player, double x, double y, double z) {
+        if (!ok) return false;
+        try {
+            Object connection = connection(getHandle(player));
+            Object vec = vec3Ctor.newInstance(x, y, z);
+            Object packet = motionCtor.newInstance(player.getEntityId(), vec);
+            send(connection, packet);
+            return true;
+        } catch (Throwable t) {
             return false;
         }
     }

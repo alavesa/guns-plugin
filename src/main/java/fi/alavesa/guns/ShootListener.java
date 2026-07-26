@@ -66,7 +66,6 @@ public final class ShootListener implements Listener {
         this.bulletShooterKey = new NamespacedKey(plugin, "bullet_shooter");
         this.bulletBouncesKey = new NamespacedKey(plugin, "bullet_bounces");
         this.bulletBornKey = new NamespacedKey(plugin, "bullet_born");
-        this.fovKey = new NamespacedKey(plugin, "recoil_fov");
         this.gunAttackerKey = new NamespacedKey(plugin, "gun_attacker");
         this.gunAttackerAtKey = new NamespacedKey(plugin, "gun_attacker_at");
         this.registry = registry;
@@ -88,11 +87,9 @@ public final class ShootListener implements Listener {
     /** Scoreboard tag on every bullet-hole decal, so leftovers can be swept on enable. */
     public static final String TAG_BULLET_HOLE = "guns.bullethole";
 
-    /** Per-player end time of the current "firing" window: while active, sprint is blocked and a
-     *  slight FOV speed-dip is eased in (see fovTick / onToggleSprint). */
+    /** Per-player end time of the current "firing" window: while active, sprint (running) is blocked
+     *  (see onToggleSprint). Does not affect movement speed. */
     private final Map<UUID, Long> recoilUntil = new ConcurrentHashMap<>();
-    /** Keyed movement-speed modifier that drives the seamless FOV dip. */
-    private final NamespacedKey fovKey;
 
     /** Players we lent a single arrow to so the client would animate the crossbow
      *  reload pull; reclaimed when the reload lands (or on quit). */
@@ -791,24 +788,31 @@ public final class ShootListener implements Listener {
             .add(0, up, 0);
     }
 
-    /** Recoil feel:
-     *  - CAMERA recoil: pitch (gun.recoil, up) + a random left/right yaw (gun.hRecoil), sent as a
-     *    rotation-only ClientboundPlayerPositionPacket (relative X_ROT/Y_ROT) so the view moves
-     *    without a teleport. Spread over 2 quick pans. Falls back to a relative teleport if NMS
-     *    isn't reachable.
-     *  - FOV spike: a short high-level Speed burst per shot - the client punches the FOV wider
-     *    for a beat (the recoil "kick" feel). */
+    /** Recoil feel (GunColony-style, all client packets - NEVER touches movement speed, so nothing
+     *  slows the player):
+     *  - CAMERA recoil: pitch (gun.recoil, up) + random left/right yaw (gun.hRecoil), sent as a
+     *    rotation-only ClientboundPlayerPositionPacket over 30 bouncy pans.
+     *  - KICK: a one-off client motion packet (SetEntityMotion) shoves the view up/back per shot -
+     *    the punch that reads as the FOV lurch, with no speed change and no permanent knock.
+     *  - NO RUN: sprint is blocked while firing (walking is untouched). */
     private void applyRecoil(Player player, Gun gun) {
         if (player.isInsideVehicle()) return;   // never disturb a seated (driving) player
 
-        // FOV + no-run recoil: open a short window (refreshed every shot). fovTick eases a SLIGHT
-        // movement-speed dip in and out across it, so the FOV shifts SEAMLESSLY (not one snappy
-        // jump), and sprint is blocked during it (onToggleSprint) - so you can still WALK while
-        // firing, just not RUN, and you're never fully stopped.
-        if (plugin.getConfig().getBoolean("fov-recoil", true)) {
+        // No RUNNING while firing (walking is fine) - a short window, refreshed each shot. This is
+        // a sprint block only (onToggleSprint); it does NOT change movement speed.
+        if (plugin.getConfig().getBoolean("no-run-while-firing", true)) {
             recoilUntil.put(player.getUniqueId(),
-                System.currentTimeMillis() + Math.max(0L, plugin.getConfig().getLong("fov-window-ms", 300)));
+                System.currentTimeMillis() + Math.max(0L, plugin.getConfig().getLong("no-run-window-ms", 300)));
             player.setSprinting(false);
+        }
+
+        // Recoil KICK: a client motion packet punches the camera up + slightly back. Pure client
+        // velocity - the server never changes the player's speed, so no snail-pace.
+        double kick = plugin.getConfig().getDouble("recoil-kick-strength", 0.10);
+        if (kick > 0 && NmsRecoil.available()) {
+            Vector back = player.getEyeLocation().getDirection().setY(0);
+            if (back.lengthSquared() > 1e-6) back.normalize(); else back = new Vector(0, 0, 0);
+            NmsRecoil.sendMotion(player, -back.getX() * kick * 0.6, kick, -back.getZ() * kick * 0.6);
         }
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
@@ -858,43 +862,8 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** Ease each firing player's FOV effect in and back out so it shifts SEAMLESSLY. Recoil punches
-     *  the FOV OUTWARD, so this is a SLIGHT positive movement-speed boost (Speed = wider FOV), not a
-     *  slowness. It's small on purpose - the player still just walks (never launched); RUNNING is
-     *  blocked separately (onToggleSprint). The modifier is fully cleared each tick so it can NEVER
-     *  stack (that stacking was what slowed players to a crawl). */
-    public void fovTick() {
-        long now = System.currentTimeMillis();
-        double boostMax = Math.max(0.0, Math.min(0.6, plugin.getConfig().getDouble("fov-boost", 0.15)));
-        double ease = Math.max(0.05, Math.min(1.0, plugin.getConfig().getDouble("fov-ease", 0.25)));
-        for (java.util.UUID id : new java.util.ArrayList<>(recoilUntil.keySet())) {
-            Player p = plugin.getServer().getPlayer(id);
-            if (p == null || !p.isOnline()) { recoilUntil.remove(id); continue; }
-            var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
-            if (attr == null) { recoilUntil.remove(id); continue; }
-            boolean active = now < recoilUntil.getOrDefault(id, 0L);
-            double cur = removeFov(attr);                                   // current boost, cleared
-            double next = cur + ((active ? boostMax : 0.0) - cur) * ease;   // ease OUT while firing, back after
-            if (next > 0.01) {
-                attr.addModifier(new org.bukkit.attribute.AttributeModifier(
-                    fovKey, next, org.bukkit.attribute.AttributeModifier.Operation.MULTIPLY_SCALAR_1));
-            } else if (!active) {
-                recoilUntil.remove(id);   // fully recovered - stop tracking
-            }
-        }
-    }
-
-    /** Remove EVERY modifier carrying our FOV key (defends against any stacking) and return the
-     *  amount that was on the first one (the current boost), or 0. */
-    private double removeFov(org.bukkit.attribute.AttributeInstance attr) {
-        double amount = 0.0;
-        for (var mod : new java.util.ArrayList<>(attr.getModifiers())) {
-            if (fovKey.equals(mod.getKey())) { amount = mod.getAmount(); attr.removeModifier(mod); }
-        }
-        return amount;
-    }
-
-    /** No RUNNING while firing (but walking is fine): block a sprint that starts during the window. */
+    /** No RUNNING while firing (but walking is fine): block a sprint that starts during the window.
+     *  This never changes movement speed - it only vetoes the sprint state. */
     @org.bukkit.event.EventHandler
     public void onToggleSprint(org.bukkit.event.player.PlayerToggleSprintEvent event) {
         if (!event.isSprinting()) return;   // stopping sprint is always allowed
@@ -902,11 +871,9 @@ public final class ShootListener implements Listener {
         if (until != null && System.currentTimeMillis() < until) event.setCancelled(true);
     }
 
-    /** Strip the FOV modifier + window (join/quit) so nothing lingers on a player. */
+    /** Forget the firing window on join/quit. */
     public void clearFovRecoil(Player p) {
         recoilUntil.remove(p.getUniqueId());
-        var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
-        if (attr != null) removeFov(attr);
     }
 
     /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */
