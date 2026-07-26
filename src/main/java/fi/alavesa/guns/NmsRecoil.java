@@ -19,12 +19,16 @@ import java.util.Set;
 public final class NmsRecoil {
 
     private static boolean ok = false;
+    private static boolean fovOk = false;
     private static Constructor<?> pmrCtor;   // PositionMoveRotation(Vec3, Vec3, float yRot, float xRot)
     private static Constructor<?> pktCtor;   // ClientboundPlayerPositionPacket(int, PositionMoveRotation, Set)
     private static Constructor<?> vec3Ctor;  // Vec3(double, double, double)
     private static Constructor<?> motionCtor;// ClientboundSetEntityMotionPacket(int, Vec3)
     private static Object vec3Zero;
     private static Object relativesSet;      // EnumSet {X, Y, Z, X_ROT, Y_ROT}
+    private static Object speedHolder;       // MobEffects.SPEED  (Holder<MobEffect>)
+    private static Constructor<?> effectInstanceCtor;  // MobEffectInstance(Holder,int,int,bool,bool,bool)
+    private static Constructor<?> effectPktCtor;       // ClientboundUpdateMobEffectPacket(int, inst, bool)
     private static Class<?> packetClass;
     private static Method getHandle;
     private static Field connectionField;
@@ -56,9 +60,39 @@ public final class NmsRecoil {
         } catch (Throwable t) {
             ok = false;
         }
+        // FOV trick: a CLIENT-ONLY Speed effect (widens FOV) sent to the shooter alone - the server
+        // never gets it, so real movement speed is untouched. Reflected separately so a failure here
+        // doesn't disable the camera pan above.
+        try {
+            Class<?> holder = Class.forName("net.minecraft.core.Holder");
+            speedHolder = Class.forName("net.minecraft.world.effect.MobEffects").getField("SPEED").get(null);
+            effectInstanceCtor = Class.forName("net.minecraft.world.effect.MobEffectInstance")
+                .getConstructor(holder, int.class, int.class, boolean.class, boolean.class, boolean.class);
+            effectPktCtor = Class.forName("net.minecraft.network.protocol.game.ClientboundUpdateMobEffectPacket")
+                .getConstructor(int.class, Class.forName("net.minecraft.world.effect.MobEffectInstance"), boolean.class);
+            fovOk = true;
+        } catch (Throwable t) {
+            fovOk = false;
+        }
     }
 
     public static boolean available() { return ok; }
+    public static boolean fovAvailable() { return fovOk; }
+
+    /** Send a CLIENT-ONLY Speed effect to just this player, so their FOV widens (the recoil "FOV
+     *  trick") while the server never applies it - real movement speed is never changed. */
+    public static boolean sendClientSpeed(Player player, int amplifier, int durationTicks) {
+        if (!fovOk) return false;
+        try {
+            Object connection = connection(getHandle(player));
+            Object inst = effectInstanceCtor.newInstance(speedHolder, durationTicks, amplifier, false, false, false);
+            Object packet = effectPktCtor.newInstance(player.getEntityId(), inst, false);
+            send(connection, packet);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
 
     /** Add {@code yawDelta} / {@code pitchDelta} degrees to the player's view via the position
      *  packet (relative rotation only). Returns false if it couldn't send (caller should fall back). */

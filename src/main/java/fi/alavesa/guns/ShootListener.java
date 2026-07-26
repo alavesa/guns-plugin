@@ -806,13 +806,15 @@ public final class ShootListener implements Listener {
             player.setSprinting(false);
         }
 
-        // Recoil KICK: a client motion packet punches the camera up + slightly back. Pure client
-        // velocity - the server never changes the player's speed, so no snail-pace.
-        double kick = plugin.getConfig().getDouble("recoil-kick-strength", 0.10);
-        if (kick > 0 && NmsRecoil.available()) {
-            Vector back = player.getEyeLocation().getDirection().setY(0);
-            if (back.lengthSquared() > 1e-6) back.normalize(); else back = new Vector(0, 0, 0);
-            NmsRecoil.sendMotion(player, -back.getX() * kick * 0.6, kick, -back.getZ() * kick * 0.6);
+        // FOV trick: a CLIENT-ONLY Speed effect sent to the shooter alone widens their FOV. The
+        // server never gets the effect, so movement speed is NEVER changed (no snail-pace, no
+        // velocity override). The amplifier is RANDOMISED per shot, so the FOV varies each shot.
+        if (plugin.getConfig().getBoolean("fov-recoil", true) && NmsRecoil.fovAvailable()) {
+            int lo = Math.max(0, plugin.getConfig().getInt("fov-min-level", 2));
+            int hi = Math.max(lo, plugin.getConfig().getInt("fov-max-level", 6));
+            int amp = lo + java.util.concurrent.ThreadLocalRandom.current().nextInt(hi - lo + 1);
+            int ticks = Math.max(1, plugin.getConfig().getInt("fov-ticks", 3));
+            NmsRecoil.sendClientSpeed(player, amp, ticks);
         }
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
