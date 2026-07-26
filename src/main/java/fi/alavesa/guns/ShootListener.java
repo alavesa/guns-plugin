@@ -800,17 +800,31 @@ public final class ShootListener implements Listener {
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
         double up = gun.recoil(), side = gun.hRecoil();
         if (up <= 0 && side <= 0) return;
-        final int steps = 2;                                   // 2 pans (was 10)
-        final float perPitch = (float) (-up / steps);          // up = negative pitch delta
-        final float perYaw = (float) (side / steps)
-            * (java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1f : -1f);
+        final int steps = 10;   // 10 pans - the rotation packet lets us pan smoothly & cheaply
+        final float yawSign = java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1f : -1f;
+        // easeOutBack: the cumulative pan rises PAST the target then eases back to EXACTLY it - a
+        // bouncy overshoot. Per-step deltas sum to the set recoil amount (f(0)=0, f(1)=1).
+        final double c1 = Math.max(0.0, plugin.getConfig().getDouble("recoil-overshoot", 1.70158));
+        final double c3 = c1 + 1.0;
+        final float[] pitch = new float[steps];
+        final float[] yaw = new float[steps];
+        double prevF = 0.0;
+        for (int i = 1; i <= steps; i++) {
+            double t = (double) i / steps, tb = t - 1.0;
+            double f = 1.0 + c3 * tb * tb * tb + c1 * tb * tb;   // overshoots ~+10% mid-way, ends at 1
+            float inc = (float) (f - prevF);
+            prevF = f;
+            pitch[i - 1] = (float) (-up) * inc;                 // up = negative pitch delta
+            yaw[i - 1] = yawSign * (float) side * inc;
+        }
         for (int i = 0; i < steps; i++) {
+            final int idx = i;
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                 if (!player.isOnline() || player.isInsideVehicle()) return;
-                if (!NmsRecoil.sendRotation(player, perYaw, perPitch)) {
-                    teleportRotate(player, perYaw, perPitch);   // fallback: relative teleport
+                if (!NmsRecoil.sendRotation(player, yaw[idx], pitch[idx])) {
+                    teleportRotate(player, yaw[idx], pitch[idx]);   // fallback: relative teleport
                 }
-            }, i);   // ticks 0, 1
+            }, i);   // ticks 0..9
         }
     }
 
