@@ -787,11 +787,14 @@ public final class ShootListener implements Listener {
     private void applyRecoil(Player player, Gun gun) {
         if (player.isInsideVehicle()) return;   // never disturb a seated (driving) player
 
+        // Subtle FOV pulse: a tiny, brief SLOWNESS (not Speed) - it nudges the FOV in a little and
+        // reads as a recoil jolt, and slowing (never speeding up) is what makes sense for recoil.
+        // Kept small on purpose; turn up fov-spike-level/ticks if you want it stronger.
         if (plugin.getConfig().getBoolean("fov-spike", true)) {
-            int lvl = Math.max(0, plugin.getConfig().getInt("fov-spike-level", 8));
+            int lvl = Math.max(0, plugin.getConfig().getInt("fov-spike-level", 0));   // 0 = Slowness I
             int ticks = Math.max(1, plugin.getConfig().getInt("fov-spike-ticks", 2));
             player.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SPEED, ticks, lvl, true, false, false));
+                org.bukkit.potion.PotionEffectType.SLOWNESS, ticks, lvl, true, false, false));
         }
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
