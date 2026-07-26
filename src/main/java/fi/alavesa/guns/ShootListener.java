@@ -66,6 +66,7 @@ public final class ShootListener implements Listener {
         this.bulletShooterKey = new NamespacedKey(plugin, "bullet_shooter");
         this.bulletBouncesKey = new NamespacedKey(plugin, "bullet_bounces");
         this.bulletBornKey = new NamespacedKey(plugin, "bullet_born");
+        this.fovKey = new NamespacedKey(plugin, "recoil_fov");
         this.gunAttackerKey = new NamespacedKey(plugin, "gun_attacker");
         this.gunAttackerAtKey = new NamespacedKey(plugin, "gun_attacker_at");
         this.registry = registry;
@@ -86,6 +87,12 @@ public final class ShootListener implements Listener {
 
     /** Scoreboard tag on every bullet-hole decal, so leftovers can be swept on enable. */
     public static final String TAG_BULLET_HOLE = "guns.bullethole";
+
+    /** Per-player end time of the current "firing" window: while active, sprint is blocked and a
+     *  slight FOV speed-dip is eased in (see fovTick / onToggleSprint). */
+    private final Map<UUID, Long> recoilUntil = new ConcurrentHashMap<>();
+    /** Keyed movement-speed modifier that drives the seamless FOV dip. */
+    private final NamespacedKey fovKey;
 
     /** Players we lent a single arrow to so the client would animate the crossbow
      *  reload pull; reclaimed when the reload lands (or on quit). */
@@ -270,6 +277,13 @@ public final class ShootListener implements Listener {
             swapHeldModel(player, false);
         }
         reclaimLentArrow(player);
+        clearFovRecoil(player);   // never leave a recoil speed-dip on a leaving player
+    }
+
+    /** Strip any leftover recoil speed-dip on join (crash residue), so nobody logs in slowed. */
+    @org.bukkit.event.EventHandler
+    public void onJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        clearFovRecoil(event.getPlayer());
     }
 
     /** Guns are crossbows whose CHARGED state now mirrors their ammo: a gun with
@@ -787,20 +801,20 @@ public final class ShootListener implements Listener {
     private void applyRecoil(Player player, Gun gun) {
         if (player.isInsideVehicle()) return;   // never disturb a seated (driving) player
 
-        // Subtle FOV pulse: a tiny, brief SLOWNESS (not Speed) - it nudges the FOV in a little and
-        // reads as a recoil jolt, and slowing (never speeding up) is what makes sense for recoil.
-        // Kept small on purpose; turn up fov-spike-level/ticks if you want it stronger.
-        if (plugin.getConfig().getBoolean("fov-spike", true)) {
-            int lvl = Math.max(0, plugin.getConfig().getInt("fov-spike-level", 0));   // 0 = Slowness I
-            int ticks = Math.max(1, plugin.getConfig().getInt("fov-spike-ticks", 2));
-            player.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SLOWNESS, ticks, lvl, true, false, false));
+        // FOV + no-run recoil: open a short window (refreshed every shot). fovTick eases a SLIGHT
+        // movement-speed dip in and out across it, so the FOV shifts SEAMLESSLY (not one snappy
+        // jump), and sprint is blocked during it (onToggleSprint) - so you can still WALK while
+        // firing, just not RUN, and you're never fully stopped.
+        if (plugin.getConfig().getBoolean("fov-recoil", true)) {
+            recoilUntil.put(player.getUniqueId(),
+                System.currentTimeMillis() + Math.max(0L, plugin.getConfig().getLong("fov-window-ms", 300)));
+            player.setSprinting(false);
         }
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
         double up = gun.recoil(), side = gun.hRecoil();
         if (up <= 0 && side <= 0) return;
-        final int steps = 10;   // 10 pans - the rotation packet lets us pan smoothly & cheaply
+        final int steps = Math.max(1, plugin.getConfig().getInt("recoil-pans", 30));   // 30 pans
         final float yawSign = java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1f : -1f;
         // easeOutBack: the cumulative pan rises PAST the target then eases back to EXACTLY it - a
         // bouncy overshoot. Per-step deltas sum to the set recoil amount (f(0)=0, f(1)=1).
@@ -842,6 +856,48 @@ public final class ShootListener implements Listener {
         } catch (Throwable t) {
             // recoil is cosmetic - never let it break firing
         }
+    }
+
+    /** Ease each firing player's movement-speed dip toward its target and back off again, so the
+     *  FOV shifts SEAMLESSLY (many small steps) rather than snapping. The dip is slight - just
+     *  enough to feel it - so the player still WALKS normally; sprint is blocked separately. */
+    public void fovTick() {
+        long now = System.currentTimeMillis();
+        double dipMax = Math.max(0.0, Math.min(0.6, plugin.getConfig().getDouble("fov-dip", 0.10)));
+        double ease = Math.max(0.05, Math.min(1.0, plugin.getConfig().getDouble("fov-ease", 0.25)));
+        for (java.util.UUID id : new java.util.ArrayList<>(recoilUntil.keySet())) {
+            Player p = plugin.getServer().getPlayer(id);
+            if (p == null || !p.isOnline()) { recoilUntil.remove(id); continue; }
+            var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
+            if (attr == null) { recoilUntil.remove(id); continue; }
+            boolean active = now < recoilUntil.getOrDefault(id, 0L);
+            var m = attr.getModifier(fovKey);
+            double cur = m == null ? 0.0 : -m.getAmount();          // stored as a negative modifier
+            double next = cur + ((active ? dipMax : 0.0) - cur) * ease;   // ease in while firing, out after
+            if (m != null) attr.removeModifier(fovKey);
+            if (next > 0.01) {
+                attr.addModifier(new org.bukkit.attribute.AttributeModifier(
+                    fovKey, -next, org.bukkit.attribute.AttributeModifier.Operation.MULTIPLY_SCALAR_1));
+            } else if (!active) {
+                recoilUntil.remove(id);   // fully recovered - stop tracking
+            }
+            if (active) p.setSprinting(false);
+        }
+    }
+
+    /** No RUNNING while firing (but walking is fine): block a sprint that starts during the window. */
+    @org.bukkit.event.EventHandler
+    public void onToggleSprint(org.bukkit.event.player.PlayerToggleSprintEvent event) {
+        if (!event.isSprinting()) return;   // stopping sprint is always allowed
+        Long until = recoilUntil.get(event.getPlayer().getUniqueId());
+        if (until != null && System.currentTimeMillis() < until) event.setCancelled(true);
+    }
+
+    /** Strip the FOV speed-dip + window (join/quit) so a crash mid-burst can't leave anyone slowed. */
+    public void clearFovRecoil(Player p) {
+        recoilUntil.remove(p.getUniqueId());
+        var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
+        if (attr != null && attr.getModifier(fovKey) != null) attr.removeModifier(fovKey);
     }
 
     /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */
