@@ -858,12 +858,14 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** Ease each firing player's movement-speed dip toward its target and back off again, so the
-     *  FOV shifts SEAMLESSLY (many small steps) rather than snapping. The dip is slight - just
-     *  enough to feel it - so the player still WALKS normally; sprint is blocked separately. */
+    /** Ease each firing player's FOV effect in and back out so it shifts SEAMLESSLY. Recoil punches
+     *  the FOV OUTWARD, so this is a SLIGHT positive movement-speed boost (Speed = wider FOV), not a
+     *  slowness. It's small on purpose - the player still just walks (never launched); RUNNING is
+     *  blocked separately (onToggleSprint). The modifier is fully cleared each tick so it can NEVER
+     *  stack (that stacking was what slowed players to a crawl). */
     public void fovTick() {
         long now = System.currentTimeMillis();
-        double dipMax = Math.max(0.0, Math.min(0.6, plugin.getConfig().getDouble("fov-dip", 0.10)));
+        double boostMax = Math.max(0.0, Math.min(0.6, plugin.getConfig().getDouble("fov-boost", 0.15)));
         double ease = Math.max(0.05, Math.min(1.0, plugin.getConfig().getDouble("fov-ease", 0.25)));
         for (java.util.UUID id : new java.util.ArrayList<>(recoilUntil.keySet())) {
             Player p = plugin.getServer().getPlayer(id);
@@ -871,18 +873,25 @@ public final class ShootListener implements Listener {
             var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
             if (attr == null) { recoilUntil.remove(id); continue; }
             boolean active = now < recoilUntil.getOrDefault(id, 0L);
-            var m = attr.getModifier(fovKey);
-            double cur = m == null ? 0.0 : -m.getAmount();          // stored as a negative modifier
-            double next = cur + ((active ? dipMax : 0.0) - cur) * ease;   // ease in while firing, out after
-            if (m != null) attr.removeModifier(fovKey);
+            double cur = removeFov(attr);                                   // current boost, cleared
+            double next = cur + ((active ? boostMax : 0.0) - cur) * ease;   // ease OUT while firing, back after
             if (next > 0.01) {
                 attr.addModifier(new org.bukkit.attribute.AttributeModifier(
-                    fovKey, -next, org.bukkit.attribute.AttributeModifier.Operation.MULTIPLY_SCALAR_1));
+                    fovKey, next, org.bukkit.attribute.AttributeModifier.Operation.MULTIPLY_SCALAR_1));
             } else if (!active) {
                 recoilUntil.remove(id);   // fully recovered - stop tracking
             }
-            if (active) p.setSprinting(false);
         }
+    }
+
+    /** Remove EVERY modifier carrying our FOV key (defends against any stacking) and return the
+     *  amount that was on the first one (the current boost), or 0. */
+    private double removeFov(org.bukkit.attribute.AttributeInstance attr) {
+        double amount = 0.0;
+        for (var mod : new java.util.ArrayList<>(attr.getModifiers())) {
+            if (fovKey.equals(mod.getKey())) { amount = mod.getAmount(); attr.removeModifier(mod); }
+        }
+        return amount;
     }
 
     /** No RUNNING while firing (but walking is fine): block a sprint that starts during the window. */
@@ -893,11 +902,11 @@ public final class ShootListener implements Listener {
         if (until != null && System.currentTimeMillis() < until) event.setCancelled(true);
     }
 
-    /** Strip the FOV speed-dip + window (join/quit) so a crash mid-burst can't leave anyone slowed. */
+    /** Strip the FOV modifier + window (join/quit) so nothing lingers on a player. */
     public void clearFovRecoil(Player p) {
         recoilUntil.remove(p.getUniqueId());
         var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
-        if (attr != null && attr.getModifier(fovKey) != null) attr.removeModifier(fovKey);
+        if (attr != null) removeFov(attr);
     }
 
     /** Rotate a direction by small yaw/pitch offsets (radians) for spread. */
