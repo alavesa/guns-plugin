@@ -281,6 +281,26 @@ public final class ShootListener implements Listener {
     @org.bukkit.event.EventHandler
     public void onJoin(org.bukkit.event.player.PlayerJoinEvent event) {
         clearFovRecoil(event.getPlayer());
+        purgeSpeedResidue(event.getPlayer());
+    }
+
+    /** THE slowness fix: older versions (0.20-0.22) applied movement-speed attribute modifiers for
+     *  the recoil FOV, and those modifiers get SAVED into player data - so a negative one left behind
+     *  by a crash/logout permanently slowed the player, forever, no matter what later versions did.
+     *  This removes every movement-speed modifier this plugin ever added (namespace "guns"), so any
+     *  residue is cleaned the moment a player joins (or on enable, below). */
+    public void purgeSpeedResidue(Player p) {
+        var attr = p.getAttribute(org.bukkit.attribute.Attribute.MOVEMENT_SPEED);
+        if (attr == null) return;
+        for (var mod : new java.util.ArrayList<>(attr.getModifiers())) {
+            NamespacedKey key = mod.getKey();
+            if (key != null && "guns".equalsIgnoreCase(key.getNamespace())) attr.removeModifier(mod);
+        }
+    }
+
+    /** Purge residue for everyone already online (called on enable, for a live /reload). */
+    public void purgeAllSpeedResidue() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) purgeSpeedResidue(p);
     }
 
     /** Guns are crossbows whose CHARGED state now mirrors their ammo: a gun with
@@ -799,31 +819,22 @@ public final class ShootListener implements Listener {
         if (player.isInsideVehicle()) return;   // never disturb a seated (driving) player
 
         // No RUNNING while firing (walking is fine) - a short window, refreshed each shot. This is
-        // a sprint block only (onToggleSprint); it does NOT change movement speed.
+        // ONLY a veto on STARTING a sprint (onToggleSprint) - it never calls setSprinting and never
+        // changes movement speed, so it can't cause a client/server desync.
         if (plugin.getConfig().getBoolean("no-run-while-firing", true)) {
             recoilUntil.put(player.getUniqueId(),
                 System.currentTimeMillis() + Math.max(0L, plugin.getConfig().getLong("no-run-window-ms", 300)));
-            player.setSprinting(false);
         }
 
-        // FOV kick via a client-only MICRO EXPLOSION (GunColony-style). Its knockback is ADDED to
-        // the player's velocity (never overrides walking, never touches movement speed), so there's
-        // no slow-down. The impulse is randomised per shot for variation; the UP part is dropped
-        // while airborne so a jumping player can't get floated/stuck.
+        // FOV kick: a CLIENT-ONLY Speed effect sent to the shooter alone widens their FOV. The
+        // server never gets the effect, so it does NOT slow (or speed) real movement. The amplifier
+        // is RANDOMISED per shot, so the kick varies each shot; kept brief.
         if (plugin.getConfig().getBoolean("fov-recoil", true) && NmsRecoil.fovAvailable()) {
-            double base = plugin.getConfig().getDouble("explosion-power", 0.06);
-            var rnd = java.util.concurrent.ThreadLocalRandom.current();
-            double power = base * (0.7 + rnd.nextDouble() * 0.6);   // 70%..130% per shot = variation
-            if (power > 0) {
-                Location eye = player.getEyeLocation();
-                Vector look = eye.getDirection();
-                Vector back = look.clone().setY(0);
-                if (back.lengthSquared() > 1e-6) back.normalize(); else back = new Vector(0, 0, 0);
-                double up = player.isOnGround() ? power * 0.5 : 0.0;   // no vertical while airborne
-                Location muzzle = eye.clone().add(look.clone().multiply(0.6));
-                NmsRecoil.sendMicroExplosion(player, muzzle.getX(), muzzle.getY(), muzzle.getZ(),
-                    -back.getX() * power, up, -back.getZ() * power);
-            }
+            int lo = Math.max(0, plugin.getConfig().getInt("fov-min-level", 2));
+            int hi = Math.max(lo, plugin.getConfig().getInt("fov-max-level", 6));
+            int amp = lo + java.util.concurrent.ThreadLocalRandom.current().nextInt(hi - lo + 1);
+            int ticks = Math.max(1, plugin.getConfig().getInt("fov-ticks", 2));
+            NmsRecoil.sendClientSpeed(player, amp, ticks);
         }
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;

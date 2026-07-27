@@ -39,6 +39,7 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::armorTick, 20L, 20L);   // vest slowness
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
+        getServer().getScheduler().runTask(this, shootListener::purgeAllSpeedResidue);       // clear old slow-modifier residue
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
