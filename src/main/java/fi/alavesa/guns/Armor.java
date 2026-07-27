@@ -10,24 +10,26 @@ import org.bukkit.Color;
  * wearer, heaviest most. Names are light grey up to BALLISTIC and dark grey for the heavy tiers.
  */
 public enum Armor {
-    ULTRA_LIGHT (1, "Ultra Light Ballistic Vest", NamedTextColor.GRAY,      -1, Color.fromRGB(224, 224, 228)),
-    LIGHT       (2, "Light Ballistic Vest",        NamedTextColor.GRAY,      -1, Color.fromRGB(188, 188, 194)),
-    BALLISTIC   (3, "Ballistic Vest",              NamedTextColor.GRAY,       0, Color.fromRGB(150, 150, 156)),
-    HEAVY       (4, "Heavy Ballistic Vest",        NamedTextColor.DARK_GRAY,  1, Color.fromRGB(96,  96,  102)),
-    ULTRA_HEAVY (5, "Ultra Heavy Ballistic Vest",  NamedTextColor.DARK_GRAY,  2, Color.fromRGB(60,  60,  66));
+    ULTRA_LIGHT (1, "Ultra Light Ballistic Vest", NamedTextColor.GRAY,      -1, Color.fromRGB(224, 224, 228), 1),
+    LIGHT       (2, "Light Ballistic Vest",        NamedTextColor.GRAY,      -1, Color.fromRGB(188, 188, 194), 1),
+    BALLISTIC   (3, "Ballistic Vest",              NamedTextColor.GRAY,       0, Color.fromRGB(150, 150, 156), 2),
+    HEAVY       (4, "Heavy Ballistic Vest",        NamedTextColor.DARK_GRAY,  1, Color.fromRGB(96,  96,  102), 3),
+    ULTRA_HEAVY (5, "Ultra Heavy Ballistic Vest",  NamedTextColor.DARK_GRAY,  2, Color.fromRGB(60,  60,  66), 4);
 
     public final int tier;
     public final String display;
     public final NamedTextColor color;
     public final int slowness;   // slowness amplifier while worn (-1 = none, 0 = Slowness I, ...)
     public final Color dye;
+    public final int absorbHits; // bullets it absorbs at 100% before it breaks (config-overridable)
 
-    Armor(int tier, String display, NamedTextColor color, int slowness, Color dye) {
+    Armor(int tier, String display, NamedTextColor color, int slowness, Color dye, int absorbHits) {
         this.tier = tier;
         this.display = display;
         this.color = color;
         this.slowness = slowness;
         this.dye = dye;
+        this.absorbHits = absorbHits;
     }
 
     /** Resource-pack custom_model_data string, e.g. "vest_ballistic". */

@@ -59,6 +59,7 @@ public final class GunRegistry {
     private final NamespacedKey roundKey;
     private final NamespacedKey vestTierKey;
     private final NamespacedKey vestProtKey;
+    private final NamespacedKey vestHitsKey;
     /** Live ammo per gun INSTANCE, held in RAM keyed by the item's instance id. Ammo lives
      *  here, NOT in the item, so firing never rewrites the held item - which is what made the
      *  gun re-equip/bob on the screen every shot on 1.21.2+/26.x. Seeded from the item's
@@ -82,6 +83,22 @@ public final class GunRegistry {
         this.roundKey = new NamespacedKey(plugin, "round");
         this.vestTierKey = new NamespacedKey(plugin, "vest_tier");
         this.vestProtKey = new NamespacedKey(plugin, "vest_prot");
+        this.vestHitsKey = new NamespacedKey(plugin, "vest_hits");
+    }
+
+    /** How many bullets this vest has already absorbed (0 for a fresh one). */
+    public int vestHits(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return 0;
+        return item.getItemMeta().getPersistentDataContainer()
+            .getOrDefault(vestHitsKey, PersistentDataType.INTEGER, 0);
+    }
+
+    /** Record the vest's absorbed-bullet count (caller re-equips it). */
+    public void setVestHits(ItemStack item, int hits) {
+        if (item == null || !item.hasItemMeta()) return;
+        ItemMeta meta = item.getItemMeta();
+        meta.getPersistentDataContainer().set(vestHitsKey, PersistentDataType.INTEGER, Math.max(0, hits));
+        item.setItemMeta(meta);
     }
 
     /** Build a ballistic vest (a dyed, chest-slot leather chestplate carrying its tier + a

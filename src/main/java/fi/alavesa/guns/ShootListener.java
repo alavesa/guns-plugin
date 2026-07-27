@@ -1210,43 +1210,30 @@ public final class ShootListener implements Listener {
         applyEffect(shooter, gun, target);
     }
 
-    /** Run a bullet against the victim's worn vest. Returns the damage that reaches the player:
-     *  0 if the vest absorbed it, else the (near-)full amount. Degrades or shatters the vest.
-     *  - round outclasses the vest (pierce >= tier): punches through, vest shatters, full damage.
-     *  - vest rated above the round (pierce < tier): 55% absorb / 45% pierce, scaled by wear; the
-     *    vest loses 33% (one tier up) or 20% (higher) protection per hit, +5% more on a pierce,
-     *    and shatters at 0%. */
+    /** Run a bullet against the victim's worn vest. Returns the damage that reaches the player.
+     *  NO gambling: a vest ALWAYS absorbs (0 damage) while it's intact, and simply BREAKS once it's
+     *  been shot its tier's number of times - the breaking bullet then gets through. Each tier's
+     *  count is Armor.absorbHits (config-overridable via vest-hits.<tier>): ultra_heavy 4, heavy 3,
+     *  ballistic 2, light 1, ultra_light 1. */
     private double resolveArmor(Player victim, Gun gun, double damage) {
         ItemStack chest = victim.getInventory().getChestplate();
         int vTier = registry.vestTier(chest);
-        if (vTier <= 0) return damage;                 // not wearing a vest
-        int pierce = gun.pierce();
+        Armor a = Armor.byTier(vTier);
+        if (a == null) return damage;                  // not wearing a vest
+        int max = Math.max(0, plugin.getConfig().getInt("vest-hits." + a.name().toLowerCase(), a.absorbHits));
+        int hits = registry.vestHits(chest);
 
-        if (pierce >= vTier) {                          // outclassed -> straight through, shatters
+        if (hits >= max) {                             // shot too many times -> it breaks, round gets through
             breakVest(victim);
             return damage;
         }
-
-        int prot = registry.vestProt(chest);
-        double absorbChance = 0.55 * (prot / 100.0);
-        boolean absorbed = java.util.concurrent.ThreadLocalRandom.current().nextDouble() < absorbChance;
-        int wear = (vTier == pierce + 1) ? 33 : 20;     // 33% one tier above, 20% for higher tiers
-        if (!absorbed) wear += 5;                        // a pierce chews it a bit more
-        int newProt = prot - wear;
-
-        if (newProt <= 0) breakVest(victim);
-        else { registry.setVestProt(chest, newProt); victim.getInventory().setChestplate(chest); }
-
-        if (absorbed) {
-            victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BLOCK, 1f, 0.8f);
-            Msg.actionbar(victim, Component.text("Vest absorbed the round (" + Math.max(0, newProt) + "%)",
-                NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
-            return 0;
-        }
-        victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_TRIDENT_HIT, 1f, 1.2f);
-        Msg.actionbar(victim, Component.text("Your vest was pierced!", NamedTextColor.RED)
-            .decorate(TextDecoration.ITALIC));
-        return damage;
+        // intact -> absorb this round fully, and count it
+        registry.setVestHits(chest, hits + 1);
+        victim.getInventory().setChestplate(chest);
+        victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BLOCK, 1f, 0.8f);
+        Msg.actionbar(victim, Component.text("Vest absorbed the round (" + (max - hits - 1) + " left)",
+            NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
+        return 0;
     }
 
     private void breakVest(Player victim) {
@@ -1329,13 +1316,19 @@ public final class ShootListener implements Listener {
         catch (NumberFormatException e) { return def; }
     }
 
-    /** Once a second: heavy vests (BALLISTIC and up) slow the wearer, heaviest most. */
+    /** Once a second: heavy vests (BALLISTIC and up) slow the wearer, heaviest most; the ULTRA
+     *  LIGHT vest instead gives a slight speed boost (light, agile armour). */
     public void armorTick() {
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             Armor a = Armor.byTier(registry.vestTier(p.getInventory().getChestplate()));
-            if (a == null || a.slowness < 0) continue;
-            p.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                org.bukkit.potion.PotionEffectType.SLOWNESS, 40, a.slowness, true, false, false));
+            if (a == null) continue;
+            if (a == Armor.ULTRA_LIGHT) {
+                p.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                    org.bukkit.potion.PotionEffectType.SPEED, 40, 0, true, false, false));   // Speed I
+            } else if (a.slowness >= 0) {
+                p.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                    org.bukkit.potion.PotionEffectType.SLOWNESS, 40, a.slowness, true, false, false));
+            }
         }
     }
 
