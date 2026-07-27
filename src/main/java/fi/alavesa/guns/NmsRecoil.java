@@ -45,15 +45,14 @@ public final class NmsRecoil {
             motionCtor = motion.getConstructor(int.class, vec3);
             Class<?> pmr = Class.forName("net.minecraft.world.entity.PositionMoveRotation");
             pmrCtor = pmr.getConstructor(vec3, vec3, float.class, float.class);
+            // EVERYTHING relative (Relative.ALL): position, DELTA (velocity) and rotation are all
+            // treated as offsets. Since we only put values in yRot/xRot and zero everywhere else,
+            // the client adds 0 to position AND to velocity, and adds the rotation deltas. CRUCIAL:
+            // if DELTA_X/Y/Z are NOT relative, the packet's zero deltaMovement is applied absolutely
+            // and ZEROES the player's velocity - which, at 30 packets/shot, slowed players to a
+            // crawl and froze them mid-air. That was THE bug.
             Class<?> rel = Class.forName("net.minecraft.world.entity.Relative");
-            @SuppressWarnings({"unchecked", "rawtypes"})
-            EnumSet set = EnumSet.noneOf((Class) rel);
-            for (String n : new String[]{"X", "Y", "Z", "X_ROT", "Y_ROT"}) {
-                @SuppressWarnings({"unchecked", "rawtypes"})
-                Object c = Enum.valueOf((Class) rel, n);
-                set.add(c);
-            }
-            relativesSet = set;
+            relativesSet = rel.getField("ALL").get(null);
             packetClass = Class.forName("net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket");
             pktCtor = packetClass.getConstructor(int.class, pmr, Set.class);
             ok = true;
