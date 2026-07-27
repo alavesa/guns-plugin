@@ -26,9 +26,10 @@ public final class NmsRecoil {
     private static Constructor<?> motionCtor;// ClientboundSetEntityMotionPacket(int, Vec3)
     private static Object vec3Zero;
     private static Object relativesSet;      // EnumSet {X, Y, Z, X_ROT, Y_ROT}
-    private static Object speedHolder;       // MobEffects.SPEED  (Holder<MobEffect>)
-    private static Constructor<?> effectInstanceCtor;  // MobEffectInstance(Holder,int,int,bool,bool,bool)
-    private static Constructor<?> effectPktCtor;       // ClientboundUpdateMobEffectPacket(int, inst, bool)
+    private static Constructor<?> explodeCtor;   // ClientboundExplodePacket(Vec3,float,int,Optional,ParticleOptions,Holder,WeightedList)
+    private static Object explosionParticle;     // ParticleTypes.EXPLOSION
+    private static Object silentSoundHolder;     // Holder.direct(SoundEvents.EMPTY)
+    private static Object emptyWeightedList;     // WeightedList.of()
     private static Class<?> packetClass;
     private static Method getHandle;
     private static Field connectionField;
@@ -60,16 +61,21 @@ public final class NmsRecoil {
         } catch (Throwable t) {
             ok = false;
         }
-        // FOV trick: a CLIENT-ONLY Speed effect (widens FOV) sent to the shooter alone - the server
-        // never gets it, so real movement speed is untouched. Reflected separately so a failure here
-        // doesn't disable the camera pan above.
+        // Micro-explosion FOV kick (GunColony-style): a client-only explosion packet whose
+        // playerKnockback is ADDED to the player's velocity (so it never overrides walking), with a
+        // SILENT sound and a tiny particle. Reflected separately so a failure doesn't disable the pan.
         try {
-            Class<?> holder = Class.forName("net.minecraft.core.Holder");
-            speedHolder = Class.forName("net.minecraft.world.effect.MobEffects").getField("SPEED").get(null);
-            effectInstanceCtor = Class.forName("net.minecraft.world.effect.MobEffectInstance")
-                .getConstructor(holder, int.class, int.class, boolean.class, boolean.class, boolean.class);
-            effectPktCtor = Class.forName("net.minecraft.network.protocol.game.ClientboundUpdateMobEffectPacket")
-                .getConstructor(int.class, Class.forName("net.minecraft.world.effect.MobEffectInstance"), boolean.class);
+            Class<?> vec3 = Class.forName("net.minecraft.world.phys.Vec3");
+            Class<?> particleOptions = Class.forName("net.minecraft.core.particles.ParticleOptions");
+            Class<?> holderCls = Class.forName("net.minecraft.core.Holder");
+            Class<?> weightedListCls = Class.forName("net.minecraft.util.random.WeightedList");
+            explosionParticle = Class.forName("net.minecraft.core.particles.ParticleTypes").getField("EXPLOSION").get(null);
+            Object emptySound = Class.forName("net.minecraft.sounds.SoundEvents").getField("EMPTY").get(null);
+            silentSoundHolder = holderCls.getMethod("direct", Object.class).invoke(null, emptySound);
+            emptyWeightedList = weightedListCls.getMethod("of").invoke(null);
+            explodeCtor = Class.forName("net.minecraft.network.protocol.game.ClientboundExplodePacket")
+                .getConstructor(vec3, float.class, int.class, java.util.Optional.class,
+                    particleOptions, holderCls, weightedListCls);
             fovOk = true;
         } catch (Throwable t) {
             fovOk = false;
@@ -79,14 +85,18 @@ public final class NmsRecoil {
     public static boolean available() { return ok; }
     public static boolean fovAvailable() { return fovOk; }
 
-    /** Send a CLIENT-ONLY Speed effect to just this player, so their FOV widens (the recoil "FOV
-     *  trick") while the server never applies it - real movement speed is never changed. */
-    public static boolean sendClientSpeed(Player player, int amplifier, int durationTicks) {
+    /** Send a client-only MICRO EXPLOSION at (cx,cy,cz) whose knockback (kx,ky,kz) is ADDED to the
+     *  player's velocity - a subtle camera jolt (the GunColony "FOV" kick) with no walk-override and
+     *  no server-side speed change. Silent, tiny particle. */
+    public static boolean sendMicroExplosion(Player player, double cx, double cy, double cz,
+                                             double kx, double ky, double kz) {
         if (!fovOk) return false;
         try {
             Object connection = connection(getHandle(player));
-            Object inst = effectInstanceCtor.newInstance(speedHolder, durationTicks, amplifier, false, false, false);
-            Object packet = effectPktCtor.newInstance(player.getEntityId(), inst, false);
+            Object center = vec3Ctor.newInstance(cx, cy, cz);
+            Object kb = vec3Ctor.newInstance(kx, ky, kz);
+            Object packet = explodeCtor.newInstance(center, 0.0f, 0, java.util.Optional.of(kb),
+                explosionParticle, silentSoundHolder, emptyWeightedList);
             send(connection, packet);
             return true;
         } catch (Throwable t) {

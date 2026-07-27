@@ -806,15 +806,24 @@ public final class ShootListener implements Listener {
             player.setSprinting(false);
         }
 
-        // FOV trick: a CLIENT-ONLY Speed effect sent to the shooter alone widens their FOV. The
-        // server never gets the effect, so movement speed is NEVER changed (no snail-pace, no
-        // velocity override). The amplifier is RANDOMISED per shot, so the FOV varies each shot.
+        // FOV kick via a client-only MICRO EXPLOSION (GunColony-style). Its knockback is ADDED to
+        // the player's velocity (never overrides walking, never touches movement speed), so there's
+        // no slow-down. The impulse is randomised per shot for variation; the UP part is dropped
+        // while airborne so a jumping player can't get floated/stuck.
         if (plugin.getConfig().getBoolean("fov-recoil", true) && NmsRecoil.fovAvailable()) {
-            int lo = Math.max(0, plugin.getConfig().getInt("fov-min-level", 2));
-            int hi = Math.max(lo, plugin.getConfig().getInt("fov-max-level", 6));
-            int amp = lo + java.util.concurrent.ThreadLocalRandom.current().nextInt(hi - lo + 1);
-            int ticks = Math.max(1, plugin.getConfig().getInt("fov-ticks", 3));
-            NmsRecoil.sendClientSpeed(player, amp, ticks);
+            double base = plugin.getConfig().getDouble("explosion-power", 0.06);
+            var rnd = java.util.concurrent.ThreadLocalRandom.current();
+            double power = base * (0.7 + rnd.nextDouble() * 0.6);   // 70%..130% per shot = variation
+            if (power > 0) {
+                Location eye = player.getEyeLocation();
+                Vector look = eye.getDirection();
+                Vector back = look.clone().setY(0);
+                if (back.lengthSquared() > 1e-6) back.normalize(); else back = new Vector(0, 0, 0);
+                double up = player.isOnGround() ? power * 0.5 : 0.0;   // no vertical while airborne
+                Location muzzle = eye.clone().add(look.clone().multiply(0.6));
+                NmsRecoil.sendMicroExplosion(player, muzzle.getX(), muzzle.getY(), muzzle.getZ(),
+                    -back.getX() * power, up, -back.getZ() * power);
+            }
         }
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
