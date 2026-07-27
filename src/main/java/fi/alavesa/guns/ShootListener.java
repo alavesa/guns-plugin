@@ -280,8 +280,14 @@ public final class ShootListener implements Listener {
     /** Strip any leftover recoil speed-dip on join (crash residue), so nobody logs in slowed. */
     @org.bukkit.event.EventHandler
     public void onJoin(org.bukkit.event.player.PlayerJoinEvent event) {
-        clearFovRecoil(event.getPlayer());
-        purgeSpeedResidue(event.getPlayer());
+        Player p = event.getPlayer();
+        clearFovRecoil(p);
+        purgeSpeedResidue(p);
+        // Clear a stuck aim-slowness (the ADS Slowness IV lasts an hour; if a player crashed while
+        // aiming it saved to their data and would slow them to a crawl forever). Any legitimate area
+        // slowness is re-applied within a second, so this is safe.
+        aiming.remove(p.getUniqueId());
+        p.removePotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS);
     }
 
     /** THE slowness fix: older versions (0.20-0.22) applied movement-speed attribute modifiers for
@@ -826,16 +832,10 @@ public final class ShootListener implements Listener {
                 System.currentTimeMillis() + Math.max(0L, plugin.getConfig().getLong("no-run-window-ms", 300)));
         }
 
-        // FOV kick: a CLIENT-ONLY Speed effect sent to the shooter alone widens their FOV. The
-        // server never gets the effect, so it does NOT slow (or speed) real movement. The amplifier
-        // is RANDOMISED per shot, so the kick varies each shot; kept brief.
-        if (plugin.getConfig().getBoolean("fov-recoil", true) && NmsRecoil.fovAvailable()) {
-            int lo = Math.max(0, plugin.getConfig().getInt("fov-min-level", 2));
-            int hi = Math.max(lo, plugin.getConfig().getInt("fov-max-level", 6));
-            int amp = lo + java.util.concurrent.ThreadLocalRandom.current().nextInt(hi - lo + 1);
-            int ticks = Math.max(1, plugin.getConfig().getInt("fov-ticks", 2));
-            NmsRecoil.sendClientSpeed(player, amp, ticks);
-        }
+        // NOTE: no FOV speed-effect here any more. Any client-only Speed effect makes the client
+        // predict movement the server then rejects - THAT was the mid-air freeze + drag. The recoil
+        // is now purely the camera pan below (which never touches movement). "No run while firing"
+        // above replaces every old movement effect (knockback etc.), and it only vetoes sprinting.
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
         double up = gun.recoil(), side = gun.hRecoil();
