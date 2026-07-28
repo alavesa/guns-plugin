@@ -184,24 +184,47 @@ public final class GunsPlugin extends JavaPlugin {
                 }
                 case "armor", "armour", "vest" -> {
                     if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
-                    if (args.length < 2 || !args[1].equalsIgnoreCase("give") || args.length < 3) {
-                        return error(sender, "/guns armor give <ultralight|light|ballistic|heavy|ultraheavy> [player]");
+                    if (args.length < 2) return error(sender,
+                        "/guns armor give <id> [player] | givebroken <id> [player] | list | reload");
+                    String sub = args[1].toLowerCase();
+                    if (sub.equals("list")) {
+                        if (registry.armorTypes().isEmpty())
+                            return error(sender, "No armour variants defined in config (armor:).");
+                        sender.sendMessage(Component.text("Armour variants:", NamedTextColor.GOLD));
+                        for (ArmorType t : registry.armorTypes()) {
+                            sender.sendMessage(Component.text("  " + t.id + " — " + t.display + " ["
+                                + t.slot.name().toLowerCase() + ", tier " + t.tier + ", soaks " + t.absorbHits + "]",
+                                NamedTextColor.GRAY));
+                        }
+                        return true;
                     }
-                    Armor vest = Armor.byId(args[2]);
-                    if (vest == null) return error(sender,
-                        "Vest types: ultralight, light, ballistic, heavy, ultraheavy");
-                    boolean other = args.length >= 4;
-                    if (other && !sender.hasPermission("guns.admin")) {
-                        return error(sender, "You can only give vests to yourself.");
+                    if (sub.equals("reload")) {
+                        if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
+                        reloadConfig();
+                        registry.loadArmor();
+                        sender.sendMessage(Component.text("Reloaded " + registry.armorTypes().size()
+                            + " armour variant(s) from config.", NamedTextColor.GOLD));
+                        return true;
                     }
-                    Player target = other ? Bukkit.getPlayerExact(args[3])
-                        : (sender instanceof Player p ? p : null);
-                    if (target == null) return error(sender, "Player not found.");
-                    target.getInventory().addItem(registry.buildVest(vest)).values()
-                        .forEach(left -> target.getWorld().dropItemNaturally(target.getLocation(), left));
-                    sender.sendMessage(Component.text("Gave " + vest.display + " to " + target.getName(),
-                        NamedTextColor.GOLD));
-                    return true;
+                    if (sub.equals("give") || sub.equals("givebroken")) {
+                        if (args.length < 3) return error(sender, "/guns armor " + sub + " <id> [player]");
+                        ArmorType t = registry.armorType(args[2]);
+                        if (t == null) return error(sender,
+                            "Unknown armour '" + args[2] + "'. See /guns armor list.");
+                        boolean other = args.length >= 4;
+                        if (other && !sender.hasPermission("guns.admin"))
+                            return error(sender, "You can only give armour to yourself.");
+                        Player target = other ? Bukkit.getPlayerExact(args[3])
+                            : (sender instanceof Player p ? p : null);
+                        if (target == null) return error(sender, "Player not found.");
+                        var built = sub.equals("givebroken") ? registry.buildBrokenArmor(t) : registry.buildArmor(t);
+                        target.getInventory().addItem(built).values()
+                            .forEach(left -> target.getWorld().dropItemNaturally(target.getLocation(), left));
+                        sender.sendMessage(Component.text("Gave " + (sub.equals("givebroken") ? "broken " : "")
+                            + t.display + " to " + target.getName(), NamedTextColor.GOLD));
+                        return true;
+                    }
+                    return error(sender, "/guns armor give <id> [player] | givebroken <id> [player] | list | reload");
                 }
                 case "create" -> {
                     if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
@@ -273,7 +296,7 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode"), args[0]);
+            case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode", "armor"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")) {
                     yield filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())
@@ -283,9 +306,16 @@ public final class GunsPlugin extends JavaPlugin {
                     yield filter(Stream.of(registry.ids(), registry.magIds())
                         .flatMap(java.util.Collection::stream), args[1]);
                 }
+                if (args[0].equalsIgnoreCase("armor") || args[0].equalsIgnoreCase("armour")) {
+                    yield filter(Stream.of("give", "givebroken", "list", "reload"), args[1]);
+                }
                 yield List.of();
             }
             case 3 -> {
+                if ((args[0].equalsIgnoreCase("armor") || args[0].equalsIgnoreCase("armour"))
+                    && (args[1].equalsIgnoreCase("give") || args[1].equalsIgnoreCase("givebroken"))) {
+                    yield filter(registry.armorTypes().stream().map(t -> t.id), args[2]);
+                }
                 if (args[0].equalsIgnoreCase("edit")) {
                     yield registry.getGrenade(args[1]) != null
                         ? filter(GunRegistry.GRENADE_EDITABLE.stream(), args[2])

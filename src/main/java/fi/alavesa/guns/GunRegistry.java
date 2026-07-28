@@ -61,6 +61,9 @@ public final class GunRegistry {
     private final NamespacedKey vestProtKey;
     private final NamespacedKey vestHitsKey;
     private final NamespacedKey vestBrokenKey;
+    private final NamespacedKey armorIdKey;
+    /** Config-defined armour variants (any slot), by id. */
+    private final java.util.LinkedHashMap<String, ArmorType> armor = new java.util.LinkedHashMap<>();
     /** Live ammo per gun INSTANCE, held in RAM keyed by the item's instance id. Ammo lives
      *  here, NOT in the item, so firing never rewrites the held item - which is what made the
      *  gun re-equip/bob on the screen every shot on 1.21.2+/26.x. Seeded from the item's
@@ -86,6 +89,64 @@ public final class GunRegistry {
         this.vestProtKey = new NamespacedKey(plugin, "vest_prot");
         this.vestHitsKey = new NamespacedKey(plugin, "vest_hits");
         this.vestBrokenKey = new NamespacedKey(plugin, "vest_broken");
+        this.armorIdKey = new NamespacedKey(plugin, "armor_id");
+        loadArmor();
+    }
+
+    // ============================================================ armour registry
+
+    /** (Re)read every armour variant from the config's {@code armor:} section. */
+    public void loadArmor() {
+        armor.clear();
+        org.bukkit.configuration.ConfigurationSection sec = plugin.getConfig().getConfigurationSection("armor");
+        if (sec == null) return;
+        for (String id : sec.getKeys(false)) {
+            org.bukkit.configuration.ConfigurationSection e = sec.getConfigurationSection(id);
+            if (e == null) continue;
+            org.bukkit.inventory.EquipmentSlot slot = ArmorType.parseSlot(e.getString("slot", "chest"));
+            String display = e.getString("display", id);
+            int tier = e.getInt("tier", 1);
+            int absorb = e.getInt("absorb-hits", 1);
+            int slowness = e.getInt("slowness", -1);
+            boolean speed = e.getBoolean("speed-boost", false);
+            org.bukkit.Color dye = parseDye(e.getString("dye", "170,170,180"));
+            net.kyori.adventure.text.format.NamedTextColor color = parseColor(e.getString("color", "gray"));
+            String model = e.getString("model", "armor_" + id);
+            armor.put(id, new ArmorType(id, display, slot, tier, absorb, slowness, speed, dye, color, model));
+        }
+    }
+
+    public ArmorType armorType(String id) { return id == null ? null : armor.get(id); }
+    public java.util.Collection<ArmorType> armorTypes() { return armor.values(); }
+
+    /** The armour variant an item represents, or null if it isn't ballistic armour. Recognises new
+     *  armor_id items and, for backward-compatibility, old vests tagged only with vest_tier. */
+    public ArmorType armorType(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return null;
+        var pdc = item.getItemMeta().getPersistentDataContainer();
+        String id = pdc.get(armorIdKey, PersistentDataType.STRING);
+        if (id != null) return armor.get(id);
+        int tier = pdc.getOrDefault(vestTierKey, PersistentDataType.INTEGER, 0);
+        if (tier >= 1) {   // legacy vest: map its tier to the default chest variant of that tier
+            for (ArmorType a : armor.values()) {
+                if (a.slot == org.bukkit.inventory.EquipmentSlot.CHEST && a.tier == tier) return a;
+            }
+        }
+        return null;
+    }
+
+    private org.bukkit.Color parseDye(String s) {
+        try {
+            String[] p = s.split(",");
+            return org.bukkit.Color.fromRGB(Integer.parseInt(p[0].trim()),
+                Integer.parseInt(p[1].trim()), Integer.parseInt(p[2].trim()));
+        } catch (Exception e) { return org.bukkit.Color.fromRGB(170, 170, 180); }
+    }
+
+    private net.kyori.adventure.text.format.NamedTextColor parseColor(String s) {
+        net.kyori.adventure.text.format.NamedTextColor c =
+            net.kyori.adventure.text.format.NamedTextColor.NAMES.value(s == null ? "gray" : s.toLowerCase());
+        return c != null ? c : net.kyori.adventure.text.format.NamedTextColor.GRAY;
     }
 
     /** How many bullets this vest has already absorbed (0 for a fresh one). */
@@ -103,27 +164,33 @@ public final class GunRegistry {
         item.setItemMeta(meta);
     }
 
-    /** Build a ballistic vest (a dyed, chest-slot leather chestplate carrying its tier + a
-     *  protection stat that degrades as it's shot). */
-    public ItemStack buildVest(Armor a) {
-        ItemStack item = new ItemStack(Material.LEATHER_CHESTPLATE);
+    /** Build an armour piece for its slot: a dyed leather item carrying its variant id and a fresh
+     *  (zero) absorbed-round count. */
+    public ItemStack buildArmor(ArmorType t) {
+        ItemStack item = new ItemStack(t.baseMaterial());
         org.bukkit.inventory.meta.LeatherArmorMeta meta =
             (org.bukkit.inventory.meta.LeatherArmorMeta) item.getItemMeta();
-        meta.setColor(a.dye);
-        meta.itemName(Component.text(a.display, a.color).decoration(TextDecoration.ITALIC, false));
+        meta.setColor(t.dye);
+        meta.itemName(Component.text(t.display, t.nameColor).decoration(TextDecoration.ITALIC, false));
         java.util.List<Component> lore = new java.util.ArrayList<>();
-        lore.add(Component.text("Stops rounds rated tier " + a.tier + " and below.",
+        lore.add(Component.text("Guards " + t.region() + " - soaks " + t.absorbHits + " round(s).",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
-        if (a.slowness >= 0) lore.add(Component.text("Heavy - slows the wearer.",
+        lore.add(Component.text("Toughness tier " + t.tier + ".",
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        if (t.speedBoost) lore.add(Component.text("Light - a touch faster.",
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        else if (t.slowness >= 0) lore.add(Component.text("Heavy - slows the wearer.",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
         meta.lore(lore);
         meta.setUnbreakable(true);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE, ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
         CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
-        cmd.setStrings(List.of(a.model()));
+        cmd.setStrings(List.of(t.model));
         meta.setCustomModelDataComponent(cmd);
-        meta.getPersistentDataContainer().set(vestTierKey, PersistentDataType.INTEGER, a.tier);
-        meta.getPersistentDataContainer().set(vestProtKey, PersistentDataType.INTEGER, 100);
+        meta.getPersistentDataContainer().set(armorIdKey, PersistentDataType.STRING, t.id);
+        meta.getPersistentDataContainer().set(vestHitsKey, PersistentDataType.INTEGER, 0);
+        if (t.slot == org.bukkit.inventory.EquipmentSlot.CHEST)
+            meta.getPersistentDataContainer().set(vestTierKey, PersistentDataType.INTEGER, t.tier);
         item.setItemMeta(meta);
         return item;
     }
@@ -132,22 +199,23 @@ public final class GunRegistry {
      *  distinct item per tier (darker dye, "Broken ..." name, its own custom_model_data so it can
      *  be textured, and a vest_broken PDC tag) that gives NO protection: it deliberately does NOT
      *  carry vest_tier, so wearing it does nothing. Repair it in SCP-914 (recipe-book side). */
-    public ItemStack buildBrokenVest(Armor a) {
-        ItemStack item = new ItemStack(Material.LEATHER_CHESTPLATE);
+    public ItemStack buildBrokenArmor(ArmorType t) {
+        ItemStack item = new ItemStack(t.baseMaterial());
         org.bukkit.inventory.meta.LeatherArmorMeta meta =
             (org.bukkit.inventory.meta.LeatherArmorMeta) item.getItemMeta();
-        org.bukkit.Color d = a.dye;
+        org.bukkit.Color d = t.dye;
         meta.setColor(org.bukkit.Color.fromRGB(d.getRed() * 2 / 5, d.getGreen() * 2 / 5, d.getBlue() * 2 / 5));
-        meta.itemName(Component.text("Broken " + a.display,
+        meta.itemName(Component.text("Broken " + t.display,
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
         meta.lore(java.util.List.of(Component.text("Shredded by gunfire. Repair it in SCP-914.",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)));
         meta.setUnbreakable(true);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE, ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
         CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
-        cmd.setStrings(List.of(a.model() + "_broken"));
+        cmd.setStrings(List.of(t.brokenModel()));
         meta.setCustomModelDataComponent(cmd);
-        meta.getPersistentDataContainer().set(vestBrokenKey, PersistentDataType.INTEGER, a.tier);
+        // No armor_id: a broken piece gives no protection until SCP-914 repairs it.
+        meta.getPersistentDataContainer().set(vestBrokenKey, PersistentDataType.INTEGER, t.tier);
         item.setItemMeta(meta);
         return item;
     }

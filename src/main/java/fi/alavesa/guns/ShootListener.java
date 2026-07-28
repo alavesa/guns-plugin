@@ -1149,7 +1149,7 @@ public final class ShootListener implements Listener {
         // Ballistic armour: a worn vest may absorb the round, get chewed up, or shatter. This
         // returns the damage that actually reaches the player (0 if the vest ate it).
         if (target instanceof Player armored) {
-            damage = resolveArmor(armored, gun, damage);
+            damage = resolveArmor(armored, part, damage);
             if (damage <= 0) {   // fully absorbed - no hit to deal, but still show the impact spark
                 target.getWorld().spawnParticle(Particle.CRIT, end, 6, 0.1, 0.1, 0.1, 0.03);
                 target.setVelocity(target.getVelocity());
@@ -1210,41 +1210,66 @@ public final class ShootListener implements Listener {
         applyEffect(shooter, gun, target);
     }
 
-    /** Run a bullet against the victim's worn vest. Returns the damage that reaches the player.
-     *  NO gambling: a vest ALWAYS absorbs (0 damage) while it's intact, and simply BREAKS once it's
-     *  been shot its tier's number of times - the breaking bullet then gets through. Each tier's
-     *  count is Armor.absorbHits (config-overridable via vest-hits.<tier>): ultra_heavy 4, heavy 3,
-     *  ballistic 2, light 1, ultra_light 1. */
-    private double resolveArmor(Player victim, Gun gun, double damage) {
-        ItemStack chest = victim.getInventory().getChestplate();
-        int vTier = registry.vestTier(chest);
-        Armor a = Armor.byTier(vTier);
-        if (a == null) return damage;                  // not wearing a vest
-        int max = Math.max(0, plugin.getConfig().getInt("vest-hits." + a.name().toLowerCase(), a.absorbHits));
-        int hits = registry.vestHits(chest);
-
-        if (hits >= max) {                             // shot too many times -> it breaks, round gets through
-            breakVest(victim, a);
+    /** Run a bullet against the armour guarding the body region it struck (helmet=head, vest=body,
+     *  leggings=leg, boots=foot). Returns the damage that reaches the player. No gambling: the piece
+     *  ALWAYS absorbs (0 damage) while intact, and BREAKS once it's soaked its variant's absorb-hits
+     *  count (config armor.<id>.absorb-hits) - the breaking round then gets through. */
+    private double resolveArmor(Player victim, String part, double damage) {
+        org.bukkit.inventory.EquipmentSlot slot = slotForPart(part);
+        ItemStack piece = equipped(victim, slot);
+        ArmorType t = registry.armorType(piece);
+        if (t == null || t.slot != slot) return damage;   // nothing ballistic guarding that region
+        int max = t.absorbHits;
+        int hits = registry.vestHits(piece);
+        if (hits >= max) {                             // soaked its limit -> it breaks, round gets through
+            breakArmor(victim, t, slot);
             return damage;
         }
-        // intact -> absorb this round fully, and count it
-        registry.setVestHits(chest, hits + 1);
-        victim.getInventory().setChestplate(chest);
+        registry.setVestHits(piece, hits + 1);         // intact -> absorb fully, count the hit
+        setEquipped(victim, slot, piece);
         victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BLOCK, 1f, 0.8f);
-        Msg.actionbar(victim, Component.text("Vest absorbed the round (" + (max - hits - 1) + " left)",
+        Msg.actionbar(victim, Component.text(t.display + " absorbed the round (" + (max - hits - 1) + " left)",
             NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
         return 0;
     }
 
-    private void breakVest(Player victim, Armor a) {
-        victim.getInventory().setChestplate(null);
-        // Hand the wearer the broken shell of THAT vest (taken off the body, into the bag) so they
-        // can carry it to SCP-914 for repair, instead of the armour just vanishing.
-        ItemStack broken = registry.buildBrokenVest(a);
+    /** Which armour slot guards the body region a bullet struck (from {@link #hitLocation}). */
+    private org.bukkit.inventory.EquipmentSlot slotForPart(String part) {
+        if (part == null) return org.bukkit.inventory.EquipmentSlot.CHEST;
+        return switch (part) {
+            case "head" -> org.bukkit.inventory.EquipmentSlot.HEAD;
+            case "foot" -> org.bukkit.inventory.EquipmentSlot.FEET;
+            case "leg" -> org.bukkit.inventory.EquipmentSlot.LEGS;
+            default -> org.bukkit.inventory.EquipmentSlot.CHEST;
+        };
+    }
+
+    private ItemStack equipped(Player p, org.bukkit.inventory.EquipmentSlot slot) {
+        return switch (slot) {
+            case HEAD -> p.getInventory().getHelmet();
+            case LEGS -> p.getInventory().getLeggings();
+            case FEET -> p.getInventory().getBoots();
+            default -> p.getInventory().getChestplate();
+        };
+    }
+
+    private void setEquipped(Player p, org.bukkit.inventory.EquipmentSlot slot, ItemStack item) {
+        switch (slot) {
+            case HEAD -> p.getInventory().setHelmet(item);
+            case LEGS -> p.getInventory().setLeggings(item);
+            case FEET -> p.getInventory().setBoots(item);
+            default -> p.getInventory().setChestplate(item);
+        }
+    }
+
+    private void breakArmor(Player victim, ArmorType t, org.bukkit.inventory.EquipmentSlot slot) {
+        setEquipped(victim, slot, null);
+        // Hand over the broken shell of that piece (into the bag) so it can be carried to SCP-914.
+        ItemStack broken = registry.buildBrokenArmor(t);
         victim.getInventory().addItem(broken).values()
             .forEach(left -> victim.getWorld().dropItemNaturally(victim.getLocation(), left));
         victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BREAK, 1f, 0.7f);
-        Msg.actionbar(victim, Component.text("Your " + a.display + " shattered! Repair it in SCP-914.",
+        Msg.actionbar(victim, Component.text("Your " + t.display + " shattered! Repair it in SCP-914.",
             NamedTextColor.RED).decorate(TextDecoration.ITALIC));
     }
 
@@ -1324,15 +1349,24 @@ public final class ShootListener implements Listener {
     /** Once a second: heavy vests (BALLISTIC and up) slow the wearer, heaviest most; the ULTRA
      *  LIGHT vest instead gives a slight speed boost (light, agile armour). */
     public void armorTick() {
+        org.bukkit.inventory.EquipmentSlot[] slots = {
+            org.bukkit.inventory.EquipmentSlot.HEAD, org.bukkit.inventory.EquipmentSlot.CHEST,
+            org.bukkit.inventory.EquipmentSlot.LEGS, org.bukkit.inventory.EquipmentSlot.FEET};
         for (Player p : plugin.getServer().getOnlinePlayers()) {
-            Armor a = Armor.byTier(registry.vestTier(p.getInventory().getChestplate()));
-            if (a == null) continue;
-            if (a == Armor.ULTRA_LIGHT) {
+            int maxSlow = -1;          // the heaviest worn piece dictates the slow
+            boolean speed = false;     // any light (speed-boost) piece nudges you faster, if nothing slows
+            for (org.bukkit.inventory.EquipmentSlot slot : slots) {
+                ArmorType t = registry.armorType(equipped(p, slot));
+                if (t == null || t.slot != slot) continue;
+                if (t.speedBoost) speed = true;
+                if (t.slowness > maxSlow) maxSlow = t.slowness;
+            }
+            if (maxSlow >= 0) {
+                p.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                    org.bukkit.potion.PotionEffectType.SLOWNESS, 40, maxSlow, true, false, false));
+            } else if (speed) {
                 p.addPotionEffect(new org.bukkit.potion.PotionEffect(
                     org.bukkit.potion.PotionEffectType.SPEED, 40, 0, true, false, false));   // Speed I
-            } else if (a.slowness >= 0) {
-                p.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                    org.bukkit.potion.PotionEffectType.SLOWNESS, 40, a.slowness, true, false, false));
             }
         }
     }
