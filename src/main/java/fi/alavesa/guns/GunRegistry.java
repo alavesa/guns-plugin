@@ -60,6 +60,7 @@ public final class GunRegistry {
     private final NamespacedKey vestTierKey;
     private final NamespacedKey vestProtKey;
     private final NamespacedKey vestHitsKey;
+    private final NamespacedKey vestBrokenKey;
     /** Live ammo per gun INSTANCE, held in RAM keyed by the item's instance id. Ammo lives
      *  here, NOT in the item, so firing never rewrites the held item - which is what made the
      *  gun re-equip/bob on the screen every shot on 1.21.2+/26.x. Seeded from the item's
@@ -84,6 +85,7 @@ public final class GunRegistry {
         this.vestTierKey = new NamespacedKey(plugin, "vest_tier");
         this.vestProtKey = new NamespacedKey(plugin, "vest_prot");
         this.vestHitsKey = new NamespacedKey(plugin, "vest_hits");
+        this.vestBrokenKey = new NamespacedKey(plugin, "vest_broken");
     }
 
     /** How many bullets this vest has already absorbed (0 for a fresh one). */
@@ -122,6 +124,30 @@ public final class GunRegistry {
         meta.setCustomModelDataComponent(cmd);
         meta.getPersistentDataContainer().set(vestTierKey, PersistentDataType.INTEGER, a.tier);
         meta.getPersistentDataContainer().set(vestProtKey, PersistentDataType.INTEGER, 100);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /** Build the BROKEN variant of a vest - the wreck left after gunfire shatters it. It's a
+     *  distinct item per tier (darker dye, "Broken ..." name, its own custom_model_data so it can
+     *  be textured, and a vest_broken PDC tag) that gives NO protection: it deliberately does NOT
+     *  carry vest_tier, so wearing it does nothing. Repair it in SCP-914 (recipe-book side). */
+    public ItemStack buildBrokenVest(Armor a) {
+        ItemStack item = new ItemStack(Material.LEATHER_CHESTPLATE);
+        org.bukkit.inventory.meta.LeatherArmorMeta meta =
+            (org.bukkit.inventory.meta.LeatherArmorMeta) item.getItemMeta();
+        org.bukkit.Color d = a.dye;
+        meta.setColor(org.bukkit.Color.fromRGB(d.getRed() * 2 / 5, d.getGreen() * 2 / 5, d.getBlue() * 2 / 5));
+        meta.itemName(Component.text("Broken " + a.display,
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        meta.lore(java.util.List.of(Component.text("Shredded by gunfire. Repair it in SCP-914.",
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)));
+        meta.setUnbreakable(true);
+        meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE, ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
+        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(List.of(a.model() + "_broken"));
+        meta.setCustomModelDataComponent(cmd);
+        meta.getPersistentDataContainer().set(vestBrokenKey, PersistentDataType.INTEGER, a.tier);
         item.setItemMeta(meta);
         return item;
     }

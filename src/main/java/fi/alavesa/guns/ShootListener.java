@@ -1224,7 +1224,7 @@ public final class ShootListener implements Listener {
         int hits = registry.vestHits(chest);
 
         if (hits >= max) {                             // shot too many times -> it breaks, round gets through
-            breakVest(victim);
+            breakVest(victim, a);
             return damage;
         }
         // intact -> absorb this round fully, and count it
@@ -1236,11 +1236,16 @@ public final class ShootListener implements Listener {
         return 0;
     }
 
-    private void breakVest(Player victim) {
+    private void breakVest(Player victim, Armor a) {
         victim.getInventory().setChestplate(null);
+        // Hand the wearer the broken shell of THAT vest (taken off the body, into the bag) so they
+        // can carry it to SCP-914 for repair, instead of the armour just vanishing.
+        ItemStack broken = registry.buildBrokenVest(a);
+        victim.getInventory().addItem(broken).values()
+            .forEach(left -> victim.getWorld().dropItemNaturally(victim.getLocation(), left));
         victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BREAK, 1f, 0.7f);
-        Msg.actionbar(victim, Component.text("Your ballistic vest shattered!", NamedTextColor.RED)
-            .decorate(TextDecoration.ITALIC));
+        Msg.actionbar(victim, Component.text("Your " + a.display + " shattered! Repair it in SCP-914.",
+            NamedTextColor.RED).decorate(TextDecoration.ITALIC));
     }
 
     /** Sweep ALL bullet-hole decals in loaded chunks - called once on enable to clear legacy
