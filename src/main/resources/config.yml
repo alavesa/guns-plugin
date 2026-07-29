@@ -10,63 +10,20 @@ tracer-max-points: 40   # max tracer particles per shot
 # and to respect no-PvP safe zones.
 bypass-pvp: true
 
-# Ballistic armour variants. Make as many as you like across the four slots:
-#   slot: helmet | chest | leggings | boots
-#   tier: toughness rating (1 light .. 5 heaviest), shown on the item
-#   absorb-hits: how many bullets it soaks before it breaks (the "bullet absorption")
-#   slowness: -1 none, 0 = Slowness I, 1 = Slowness II ... (heaviest worn piece wins)
-#   speed-boost: true gives Speed I while worn (if nothing you wear slows you)
-#   dye: "R,G,B" leather colour (tells tiers apart until a pack model is made)
-#   model: custom_model_data string for a resource pack (broken variant = <model>_broken)
-# A helmet guards head shots, a vest body shots, leggings leg shots, boots foot shots.
-# Give with: /guns armor give <id> [player]   (list them with /guns armor list)
+# Ballistic armour.
+#
+# The FIVE CHESTPLATE vests are FIXED built-ins and always exist - you do NOT
+# configure them here: ultra_light, light, ballistic, heavy, ultra_heavy.
+#
+# CUSTOM variants below are for the OTHER slots only - helmet, leggings, boots.
+# Add as many as you like; a chestplate entry here is ignored. Fields:
+#   slot: helmet | leggings | boots
+#   tier: toughness (1..5), absorb-hits: bullets soaked before it breaks
+#   slowness: -1 none, 0 = Slowness I, 1 = Slowness II ...  speed-boost: true for Speed I
+#   dye: "R,G,B" leather colour   model: custom_model_data string (broken = <model>_broken)
+# A helmet guards head shots, leggings leg shots, boots foot shots. The defaults
+# below can be tuned or copied. Give with /guns armor give <id> [player]; /guns armor list.
 armor:
-  ultra_light:
-    slot: chest
-    display: "Ultra Light Ballistic Vest"
-    color: gray
-    tier: 1
-    absorb-hits: 1
-    slowness: -1
-    speed-boost: true
-    dye: "224,224,228"
-    model: vest_ultra_light
-  light:
-    slot: chest
-    display: "Light Ballistic Vest"
-    color: gray
-    tier: 2
-    absorb-hits: 1
-    slowness: -1
-    dye: "188,188,194"
-    model: vest_light
-  ballistic:
-    slot: chest
-    display: "Ballistic Vest"
-    color: gray
-    tier: 3
-    absorb-hits: 2
-    slowness: 0
-    dye: "150,150,156"
-    model: vest_ballistic
-  heavy:
-    slot: chest
-    display: "Heavy Ballistic Vest"
-    color: dark_gray
-    tier: 4
-    absorb-hits: 3
-    slowness: 1
-    dye: "96,96,102"
-    model: vest_heavy
-  ultra_heavy:
-    slot: chest
-    display: "Ultra Heavy Ballistic Vest"
-    color: dark_gray
-    tier: 5
-    absorb-hits: 4
-    slowness: 2
-    dye: "60,60,66"
-    model: vest_ultra_heavy
   light_helmet:
     slot: helmet
     display: "Light Ballistic Helmet"
