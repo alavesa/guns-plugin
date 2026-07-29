@@ -37,7 +37,6 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
-        getServer().getScheduler().runTaskTimer(this, shootListener::armorTick, 20L, 20L);   // vest slowness
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
         getServer().getScheduler().runTask(this, shootListener::purgeAllSpeedResidue);       // clear old slow-modifier residue
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
@@ -185,7 +184,7 @@ public final class GunsPlugin extends JavaPlugin {
                 case "armor", "armour", "vest" -> {
                     if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
                     if (args.length < 2) return error(sender,
-                        "/guns armor give <id> [player] | givebroken <id> [player] | list | reload");
+                        "/guns armor give <id> [player] | givebroken <id> [player] | slowness <id> <percent> | list | reload");
                     String sub = args[1].toLowerCase();
                     if (sub.equals("list")) {
                         if (registry.armorTypes().isEmpty())
@@ -206,6 +205,23 @@ public final class GunsPlugin extends JavaPlugin {
                             + " armour variant(s) from config.", NamedTextColor.GOLD));
                         return true;
                     }
+                    if (sub.equals("slowness") || sub.equals("speed")) {
+                        if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
+                        if (args.length < 4) return error(sender,
+                            "/guns armor slowness <id> <percent>   e.g. -5 for -5% walk speed");
+                        if (registry.armorType(args[2]) == null)
+                            return error(sender, "Unknown armour '" + args[2] + "'. See /guns armor list.");
+                        double pct;
+                        try { pct = Double.parseDouble(args[3].replace("%", "")); }
+                        catch (NumberFormatException e) { return error(sender, "Percent must be a number, e.g. -5."); }
+                        getConfig().set("armor-speed." + args[2], pct / 100.0);   // store as a fraction
+                        saveConfig();
+                        registry.loadArmor();
+                        sender.sendMessage(Component.text("Set " + args[2] + " speed modifier to "
+                            + (pct > 0 ? "+" : "") + pct + "%. Re-give the piece for it to apply.",
+                            NamedTextColor.GOLD));
+                        return true;
+                    }
                     if (sub.equals("give") || sub.equals("givebroken")) {
                         if (args.length < 3) return error(sender, "/guns armor " + sub + " <id> [player]");
                         ArmorType t = registry.armorType(args[2]);
@@ -224,7 +240,7 @@ public final class GunsPlugin extends JavaPlugin {
                             + t.display + " to " + target.getName(), NamedTextColor.GOLD));
                         return true;
                     }
-                    return error(sender, "/guns armor give <id> [player] | givebroken <id> [player] | list | reload");
+                    return error(sender, "/guns armor give <id> [player] | givebroken <id> [player] | slowness <id> <percent> | list | reload");
                 }
                 case "create" -> {
                     if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
@@ -307,13 +323,14 @@ public final class GunsPlugin extends JavaPlugin {
                         .flatMap(java.util.Collection::stream), args[1]);
                 }
                 if (args[0].equalsIgnoreCase("armor") || args[0].equalsIgnoreCase("armour")) {
-                    yield filter(Stream.of("give", "givebroken", "list", "reload"), args[1]);
+                    yield filter(Stream.of("give", "givebroken", "slowness", "list", "reload"), args[1]);
                 }
                 yield List.of();
             }
             case 3 -> {
                 if ((args[0].equalsIgnoreCase("armor") || args[0].equalsIgnoreCase("armour"))
-                    && (args[1].equalsIgnoreCase("give") || args[1].equalsIgnoreCase("givebroken"))) {
+                    && (args[1].equalsIgnoreCase("give") || args[1].equalsIgnoreCase("givebroken")
+                        || args[1].equalsIgnoreCase("slowness"))) {
                     yield filter(registry.armorTypes().stream().map(t -> t.id), args[2]);
                 }
                 if (args[0].equalsIgnoreCase("edit")) {

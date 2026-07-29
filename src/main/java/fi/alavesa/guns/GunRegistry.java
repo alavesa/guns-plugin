@@ -105,25 +105,34 @@ public final class GunRegistry {
         armor.clear();
         for (ArmorType t : builtinArmor()) armor.put(t.id, t);   // 5 vests + default helmets/legs/boots
         org.bukkit.configuration.ConfigurationSection sec = plugin.getConfig().getConfigurationSection("armor");
-        if (sec == null) return;
-        for (String id : sec.getKeys(false)) {
-            org.bukkit.configuration.ConfigurationSection e = sec.getConfigurationSection(id);
-            if (e == null) continue;
-            org.bukkit.inventory.EquipmentSlot slot = ArmorType.parseSlot(e.getString("slot", "helmet"));
-            if (slot == org.bukkit.inventory.EquipmentSlot.CHEST) {
-                plugin.getLogger().warning("Ignoring config armour '" + id
-                    + "': chestplates are fixed - custom variants are only for helmet/leggings/boots.");
-                continue;
+        if (sec != null) {
+            for (String id : sec.getKeys(false)) {
+                org.bukkit.configuration.ConfigurationSection e = sec.getConfigurationSection(id);
+                if (e == null) continue;
+                org.bukkit.inventory.EquipmentSlot slot = ArmorType.parseSlot(e.getString("slot", "helmet"));
+                if (slot == org.bukkit.inventory.EquipmentSlot.CHEST) {
+                    plugin.getLogger().warning("Ignoring config armour '" + id
+                        + "': chestplates are fixed - custom variants are only for helmet/leggings/boots.");
+                    continue;
+                }
+                String display = e.getString("display", id);
+                int tier = e.getInt("tier", 1);
+                int absorb = e.getInt("absorb-hits", 1);
+                double speedMod = e.getDouble("speed-mod", 0.0);
+                org.bukkit.Color dye = parseDye(e.getString("dye", "170,170,180"));
+                net.kyori.adventure.text.format.NamedTextColor color = parseColor(e.getString("color", "gray"));
+                String model = e.getString("model", "armor_" + id);
+                armor.put(id, new ArmorType(id, display, slot, tier, absorb, speedMod, dye, color, model));
             }
-            String display = e.getString("display", id);
-            int tier = e.getInt("tier", 1);
-            int absorb = e.getInt("absorb-hits", 1);
-            int slowness = e.getInt("slowness", -1);
-            boolean speed = e.getBoolean("speed-boost", false);
-            org.bukkit.Color dye = parseDye(e.getString("dye", "170,170,180"));
-            net.kyori.adventure.text.format.NamedTextColor color = parseColor(e.getString("color", "gray"));
-            String model = e.getString("model", "armor_" + id);
-            armor.put(id, new ArmorType(id, display, slot, tier, absorb, slowness, speed, dye, color, model));
+        }
+        // Runtime speed-modifier overrides (set by /guns armor slowness) win for ANY piece - chest
+        // included - so even the fixed vests' weight can be retuned by command.
+        org.bukkit.configuration.ConfigurationSection ov = plugin.getConfig().getConfigurationSection("armor-speed");
+        if (ov != null) {
+            for (String id : ov.getKeys(false)) {
+                ArmorType t = armor.get(id);
+                if (t != null) armor.put(id, t.withSpeedMod(ov.getDouble(id)));
+            }
         }
         plugin.getLogger().info("Armour: " + armor.size() + " variants (5 fixed vests + "
             + (armor.size() - 5) + " helmet/leggings/boots).");
@@ -138,20 +147,20 @@ public final class GunRegistry {
         var GRAY = net.kyori.adventure.text.format.NamedTextColor.GRAY;
         var DARK = net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY;
         return java.util.List.of(
-            // --- the five FIXED chestplate vests (add back the previous types) ---
-            new ArmorType("ultra_light", "Ultra Light Ballistic Vest", CHEST, 1, 1, -1, true,  org.bukkit.Color.fromRGB(224, 224, 228), GRAY, "vest_ultra_light"),
-            new ArmorType("light",       "Light Ballistic Vest",       CHEST, 2, 1, -1, false, org.bukkit.Color.fromRGB(188, 188, 194), GRAY, "vest_light"),
-            new ArmorType("ballistic",   "Ballistic Vest",             CHEST, 3, 2,  0, false, org.bukkit.Color.fromRGB(150, 150, 156), GRAY, "vest_ballistic"),
-            new ArmorType("heavy",       "Heavy Ballistic Vest",       CHEST, 4, 3,  1, false, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "vest_heavy"),
-            new ArmorType("ultra_heavy", "Ultra Heavy Ballistic Vest", CHEST, 5, 4,  2, false, org.bukkit.Color.fromRGB(60,  60,  66),  DARK, "vest_ultra_heavy"),
+            // --- the five FIXED chestplate vests --- (last number = speed modifier fraction)
+            new ArmorType("ultra_light", "Ultra Light Ballistic Vest", CHEST, 1, 1,  0.05, org.bukkit.Color.fromRGB(224, 224, 228), GRAY, "vest_ultra_light"),
+            new ArmorType("light",       "Light Ballistic Vest",       CHEST, 2, 1,  0.00, org.bukkit.Color.fromRGB(188, 188, 194), GRAY, "vest_light"),
+            new ArmorType("ballistic",   "Ballistic Vest",             CHEST, 3, 2, -0.05, org.bukkit.Color.fromRGB(150, 150, 156), GRAY, "vest_ballistic"),
+            new ArmorType("heavy",       "Heavy Ballistic Vest",       CHEST, 4, 3, -0.10, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "vest_heavy"),
+            new ArmorType("ultra_heavy", "Ultra Heavy Ballistic Vest", CHEST, 5, 4, -0.15, org.bukkit.Color.fromRGB(60,  60,  66),  DARK, "vest_ultra_heavy"),
             // --- default helmets / leggings / boots (config can tune or add more) ---
-            new ArmorType("light_helmet",   "Light Ballistic Helmet",  HEAD, 2, 1, -1, false, org.bukkit.Color.fromRGB(188, 188, 194), GRAY, "helmet_light"),
-            new ArmorType("combat_helmet",  "Combat Helmet",           HEAD, 3, 2, -1, false, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "helmet_combat"),
-            new ArmorType("heavy_helmet",   "Heavy Ballistic Helmet",  HEAD, 4, 2,  0, false, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "helmet_heavy"),
-            new ArmorType("combat_leggings","Combat Leggings",         LEGS, 3, 2,  0, false, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "leggings_combat"),
-            new ArmorType("heavy_leggings", "Heavy Ballistic Leggings",LEGS, 4, 2,  1, false, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "leggings_heavy"),
-            new ArmorType("combat_boots",   "Combat Boots",            FEET, 3, 1, -1, false, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "boots_combat"),
-            new ArmorType("heavy_boots",    "Heavy Ballistic Boots",   FEET, 4, 2,  0, false, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "boots_heavy"));
+            new ArmorType("light_helmet",   "Light Ballistic Helmet",  HEAD, 2, 1,  0.00, org.bukkit.Color.fromRGB(188, 188, 194), GRAY, "helmet_light"),
+            new ArmorType("combat_helmet",  "Combat Helmet",           HEAD, 3, 2, -0.02, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "helmet_combat"),
+            new ArmorType("heavy_helmet",   "Heavy Ballistic Helmet",  HEAD, 4, 2, -0.05, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "helmet_heavy"),
+            new ArmorType("combat_leggings","Combat Leggings",         LEGS, 3, 2, -0.05, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "leggings_combat"),
+            new ArmorType("heavy_leggings", "Heavy Ballistic Leggings",LEGS, 4, 2, -0.08, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "leggings_heavy"),
+            new ArmorType("combat_boots",   "Combat Boots",            FEET, 3, 1, -0.02, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "boots_combat"),
+            new ArmorType("heavy_boots",    "Heavy Ballistic Boots",   FEET, 4, 2, -0.05, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "boots_heavy"));
     }
 
     public ArmorType armorType(String id) { return id == null ? null : armor.get(id); }
@@ -215,9 +224,7 @@ public final class GunRegistry {
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
         lore.add(Component.text("Toughness tier " + t.tier + ".",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
-        if (t.speedBoost) lore.add(Component.text("Light - a touch faster.",
-            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
-        else if (t.slowness >= 0) lore.add(Component.text("Heavy - slows the wearer.",
+        if (t.speedMod != 0) lore.add(Component.text("Weight: " + t.speedLabel() + " (stacks).",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
         meta.lore(lore);
         meta.setUnbreakable(true);
@@ -225,6 +232,14 @@ public final class GunRegistry {
         CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
         cmd.setStrings(List.of(t.model));
         meta.setCustomModelDataComponent(cmd);
+        // Weight as a MOVEMENT_SPEED attribute modifier baked on the item (applies only in its slot),
+        // so several worn pieces STACK - which potion effects can't. MULTIPLY_SCALAR_1 = a fraction.
+        if (t.speedMod != 0) {
+            org.bukkit.NamespacedKey modKey = new org.bukkit.NamespacedKey(plugin, "armor_speed_" + t.id);
+            meta.addAttributeModifier(org.bukkit.attribute.Attribute.MOVEMENT_SPEED,
+                new org.bukkit.attribute.AttributeModifier(modKey, t.speedMod,
+                    org.bukkit.attribute.AttributeModifier.Operation.MULTIPLY_SCALAR_1, t.slotGroup()));
+        }
         meta.getPersistentDataContainer().set(armorIdKey, PersistentDataType.STRING, t.id);
         meta.getPersistentDataContainer().set(vestHitsKey, PersistentDataType.INTEGER, 0);
         if (t.slot == org.bukkit.inventory.EquipmentSlot.CHEST)

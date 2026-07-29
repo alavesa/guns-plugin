@@ -1346,30 +1346,9 @@ public final class ShootListener implements Listener {
         catch (NumberFormatException e) { return def; }
     }
 
-    /** Once a second: heavy vests (BALLISTIC and up) slow the wearer, heaviest most; the ULTRA
-     *  LIGHT vest instead gives a slight speed boost (light, agile armour). */
-    public void armorTick() {
-        org.bukkit.inventory.EquipmentSlot[] slots = {
-            org.bukkit.inventory.EquipmentSlot.HEAD, org.bukkit.inventory.EquipmentSlot.CHEST,
-            org.bukkit.inventory.EquipmentSlot.LEGS, org.bukkit.inventory.EquipmentSlot.FEET};
-        for (Player p : plugin.getServer().getOnlinePlayers()) {
-            int maxSlow = -1;          // the heaviest worn piece dictates the slow
-            boolean speed = false;     // any light (speed-boost) piece nudges you faster, if nothing slows
-            for (org.bukkit.inventory.EquipmentSlot slot : slots) {
-                ArmorType t = registry.armorType(equipped(p, slot));
-                if (t == null || t.slot != slot) continue;
-                if (t.speedBoost) speed = true;
-                if (t.slowness > maxSlow) maxSlow = t.slowness;
-            }
-            if (maxSlow >= 0) {
-                p.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                    org.bukkit.potion.PotionEffectType.SLOWNESS, 40, maxSlow, true, false, false));
-            } else if (speed) {
-                p.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                    org.bukkit.potion.PotionEffectType.SPEED, 40, 0, true, false, false));   // Speed I
-            }
-        }
-    }
+    // Armour weight is now a MOVEMENT_SPEED attribute modifier baked onto each piece (GunRegistry
+    // .buildArmor), so it applies automatically while worn and STACKS across pieces - no per-tick
+    // potion effect. The old armorTick() and its scheduler were removed.
 
     /** Which body part the shot at `end` (the ray's hit position) struck, judged by height
      *  up the victim's hitbox: head = top 0.35 blocks, then chest/stomach/legs/feet bands.
