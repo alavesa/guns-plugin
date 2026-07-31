@@ -27,9 +27,15 @@ public final class ArmorType {
     public final Color dye;
     public final NamedTextColor nameColor;
     public final String model;     // custom_model_data string; broken variant is model + "_broken"
+    public final int insulation;   // thermal insulation 0..N: near fire you don't ignite, but it wears the piece
 
     public ArmorType(String id, String display, EquipmentSlot slot, int tier, int absorbHits,
                      double speedMod, Color dye, NamedTextColor nameColor, String model) {
+        this(id, display, slot, tier, absorbHits, speedMod, dye, nameColor, model, 0);
+    }
+
+    private ArmorType(String id, String display, EquipmentSlot slot, int tier, int absorbHits,
+                      double speedMod, Color dye, NamedTextColor nameColor, String model, int insulation) {
         this.id = id;
         this.display = display;
         this.slot = slot;
@@ -39,11 +45,17 @@ public final class ArmorType {
         this.dye = dye;
         this.nameColor = nameColor;
         this.model = model;
+        this.insulation = Math.max(0, insulation);
     }
 
     /** A copy with a different speed modifier (used by /guns armor slowness and config overrides). */
     public ArmorType withSpeedMod(double newMod) {
-        return new ArmorType(id, display, slot, tier, absorbHits, newMod, dye, nameColor, model);
+        return new ArmorType(id, display, slot, tier, absorbHits, newMod, dye, nameColor, model, insulation);
+    }
+
+    /** A copy with a different thermal insulation (used by /guns armor insulation and config). */
+    public ArmorType withInsulation(int newInsulation) {
+        return new ArmorType(id, display, slot, tier, absorbHits, speedMod, dye, nameColor, model, newInsulation);
     }
 
     public Material baseMaterial() {

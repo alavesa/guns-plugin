@@ -122,23 +122,32 @@ public final class GunRegistry {
                 org.bukkit.Color dye = parseDye(e.getString("dye", "170,170,180"));
                 net.kyori.adventure.text.format.NamedTextColor color = parseColor(e.getString("color", "gray"));
                 String model = e.getString("model", "armor_" + id);
-                armor.put(id, new ArmorType(id, display, slot, tier, absorb, speedMod, dye, color, model));
+                int insulation = e.getInt("insulation", 0);
+                armor.put(id, new ArmorType(id, display, slot, tier, absorb, speedMod, dye, color, model)
+                    .withInsulation(insulation));
             }
         }
         // Runtime speed-modifier overrides (set by /guns armor slowness) win for ANY piece - chest
         // included - so even the fixed vests' weight can be retuned by command.
-        org.bukkit.configuration.ConfigurationSection ov = plugin.getConfig().getConfigurationSection("armor-speed");
-        if (ov != null) {
-            for (String id : ov.getKeys(false)) {
-                ArmorType t = armor.get(id);
-                if (t != null) armor.put(id, t.withSpeedMod(ov.getDouble(id)));
-            }
-        }
+        applyOverride("armor-speed", (t, v) -> t.withSpeedMod(v.doubleValue()));
+        applyOverride("armor-insulation", (t, v) -> t.withInsulation(v.intValue()));
         plugin.getLogger().info("Armour: " + armor.size() + " variants (5 fixed vests + "
             + (armor.size() - 5) + " helmet/leggings/boots).");
     }
 
-    /** The always-present variants: the 5 fixed chestplate vests + default non-chest pieces. */
+    /** Apply a config override section ({@code armor-speed} / {@code armor-insulation}) to any piece. */
+    private void applyOverride(String section, java.util.function.BiFunction<ArmorType, Number, ArmorType> apply) {
+        org.bukkit.configuration.ConfigurationSection ov = plugin.getConfig().getConfigurationSection(section);
+        if (ov == null) return;
+        for (String id : ov.getKeys(false)) {
+            ArmorType t = armor.get(id);
+            Object v = ov.get(id);
+            if (t != null && v instanceof Number n) armor.put(id, apply.apply(t, n));
+        }
+    }
+
+    /** The always-present variants: the 5 fixed chestplate vests + default non-chest pieces. The
+     *  heavier pieces carry some thermal insulation (they resist catching fire, at a durability cost). */
     private java.util.List<ArmorType> builtinArmor() {
         var HEAD = org.bukkit.inventory.EquipmentSlot.HEAD;
         var CHEST = org.bukkit.inventory.EquipmentSlot.CHEST;
@@ -150,17 +159,17 @@ public final class GunRegistry {
             // --- the five FIXED chestplate vests --- (last number = speed modifier fraction)
             new ArmorType("ultra_light", "Ultra Light Ballistic Vest", CHEST, 1, 1,  0.05, org.bukkit.Color.fromRGB(224, 224, 228), GRAY, "vest_ultra_light"),
             new ArmorType("light",       "Light Ballistic Vest",       CHEST, 2, 1,  0.00, org.bukkit.Color.fromRGB(188, 188, 194), GRAY, "vest_light"),
-            new ArmorType("ballistic",   "Ballistic Vest",             CHEST, 3, 2, -0.05, org.bukkit.Color.fromRGB(150, 150, 156), GRAY, "vest_ballistic"),
-            new ArmorType("heavy",       "Heavy Ballistic Vest",       CHEST, 4, 3, -0.10, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "vest_heavy"),
-            new ArmorType("ultra_heavy", "Ultra Heavy Ballistic Vest", CHEST, 5, 4, -0.15, org.bukkit.Color.fromRGB(60,  60,  66),  DARK, "vest_ultra_heavy"),
+            new ArmorType("ballistic",   "Ballistic Vest",             CHEST, 3, 2, -0.05, org.bukkit.Color.fromRGB(150, 150, 156), GRAY, "vest_ballistic").withInsulation(1),
+            new ArmorType("heavy",       "Heavy Ballistic Vest",       CHEST, 4, 3, -0.10, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "vest_heavy").withInsulation(2),
+            new ArmorType("ultra_heavy", "Ultra Heavy Ballistic Vest", CHEST, 5, 4, -0.15, org.bukkit.Color.fromRGB(60,  60,  66),  DARK, "vest_ultra_heavy").withInsulation(3),
             // --- default helmets / leggings / boots (config can tune or add more) ---
             new ArmorType("light_helmet",   "Light Ballistic Helmet",  HEAD, 2, 1,  0.00, org.bukkit.Color.fromRGB(188, 188, 194), GRAY, "helmet_light"),
             new ArmorType("combat_helmet",  "Combat Helmet",           HEAD, 3, 2, -0.02, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "helmet_combat"),
-            new ArmorType("heavy_helmet",   "Heavy Ballistic Helmet",  HEAD, 4, 2, -0.05, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "helmet_heavy"),
+            new ArmorType("heavy_helmet",   "Heavy Ballistic Helmet",  HEAD, 4, 2, -0.05, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "helmet_heavy").withInsulation(1),
             new ArmorType("combat_leggings","Combat Leggings",         LEGS, 3, 2, -0.05, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "leggings_combat"),
-            new ArmorType("heavy_leggings", "Heavy Ballistic Leggings",LEGS, 4, 2, -0.08, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "leggings_heavy"),
+            new ArmorType("heavy_leggings", "Heavy Ballistic Leggings",LEGS, 4, 2, -0.08, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "leggings_heavy").withInsulation(1),
             new ArmorType("combat_boots",   "Combat Boots",            FEET, 3, 1, -0.02, org.bukkit.Color.fromRGB(120, 124, 110), GRAY, "boots_combat"),
-            new ArmorType("heavy_boots",    "Heavy Ballistic Boots",   FEET, 4, 2, -0.05, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "boots_heavy"));
+            new ArmorType("heavy_boots",    "Heavy Ballistic Boots",   FEET, 4, 2, -0.05, org.bukkit.Color.fromRGB(96,  96,  102), DARK, "boots_heavy").withInsulation(1));
     }
 
     public ArmorType armorType(String id) { return id == null ? null : armor.get(id); }
@@ -226,9 +235,15 @@ public final class GunRegistry {
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
         if (t.speedMod != 0) lore.add(Component.text("Weight: " + t.speedLabel() + " (stacks).",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
+        if (t.insulation > 0) lore.add(Component.text("Thermal insulation " + t.insulation
+            + " - resists fire (wears the piece).",
+            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
         meta.lore(lore);
-        meta.setUnbreakable(true);
-        meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE, ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
+        // #2 dynamic health: real DURABILITY. max_damage = absorb-hits, damage 0 (full bar). NOT
+        // unbreakable, so the vanilla durability bar shows the armour's health and shrinks per hit.
+        ((org.bukkit.inventory.meta.Damageable) meta).setMaxDamage(t.absorbHits);
+        ((org.bukkit.inventory.meta.Damageable) meta).setDamage(0);
+        meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
         CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
         cmd.setStrings(List.of(t.model));
         meta.setCustomModelDataComponent(cmd);
@@ -248,27 +263,23 @@ public final class GunRegistry {
         return item;
     }
 
-    /** Build the BROKEN variant of a vest - the wreck left after gunfire shatters it. It's a
-     *  distinct item per tier (darker dye, "Broken ..." name, its own custom_model_data so it can
-     *  be textured, and a vest_broken PDC tag) that gives NO protection: it deliberately does NOT
-     *  carry vest_tier, so wearing it does nothing. Repair it in SCP-914 (recipe-book side). */
+    /** Build the BROKEN variant - the wreck left after an armour piece's durability runs out. It's a
+     *  distinct, UNWEARABLE item (a non-armour base, so it can't be equipped at all - #3), named
+     *  "Broken ...", with its own custom_model_data + a vest_broken PDC tag. Repair it in SCP-914
+     *  (recipe-book side). */
     public ItemStack buildBrokenArmor(ArmorType t) {
-        ItemStack item = new ItemStack(t.baseMaterial());
-        org.bukkit.inventory.meta.LeatherArmorMeta meta =
-            (org.bukkit.inventory.meta.LeatherArmorMeta) item.getItemMeta();
-        org.bukkit.Color d = t.dye;
-        meta.setColor(org.bukkit.Color.fromRGB(d.getRed() * 2 / 5, d.getGreen() * 2 / 5, d.getBlue() * 2 / 5));
+        ItemStack item = new ItemStack(Material.LEATHER);   // NOT armour -> can't be worn
+        ItemMeta meta = item.getItemMeta();
         meta.itemName(Component.text("Broken " + t.display,
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
-        meta.lore(java.util.List.of(Component.text("Shredded by gunfire. Repair it in SCP-914.",
+        meta.lore(java.util.List.of(Component.text("Wrecked - can't be worn. Repair it in SCP-914.",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)));
-        meta.setUnbreakable(true);
-        meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE, ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
         CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
         cmd.setStrings(List.of(t.brokenModel()));
         meta.setCustomModelDataComponent(cmd);
-        // No armor_id: a broken piece gives no protection until SCP-914 repairs it.
+        // Records which piece it was (tier + id) for clarity / 914; no armor_id so it gives no protection.
         meta.getPersistentDataContainer().set(vestBrokenKey, PersistentDataType.INTEGER, t.tier);
+        meta.getPersistentDataContainer().set(armorIdKey, PersistentDataType.STRING, "broken_" + t.id);
         item.setItemMeta(meta);
         return item;
     }

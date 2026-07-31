@@ -1219,17 +1219,25 @@ public final class ShootListener implements Listener {
         ItemStack piece = equipped(victim, slot);
         ArmorType t = registry.armorType(piece);
         if (t == null || t.slot != slot) return damage;   // nothing ballistic guarding that region
-        int max = t.absorbHits;
-        int hits = registry.vestHits(piece);
-        if (hits >= max) {                             // soaked its limit -> it breaks, round gets through
+        // #2: the piece's DURABILITY is its health. Each absorbed round adds a damage point; when it
+        // reaches max_damage the piece breaks (into the unwearable broken variant) and rounds pass.
+        org.bukkit.inventory.meta.Damageable dm = (org.bukkit.inventory.meta.Damageable) piece.getItemMeta();
+        int max = dm.hasMaxDamage() ? dm.getMaxDamage() : t.absorbHits;
+        int used = dm.getDamage();
+        if (used >= max) {                             // already spent -> it breaks, round gets through
             breakArmor(victim, t, slot);
             return damage;
         }
-        registry.setVestHits(piece, hits + 1);         // intact -> absorb fully, count the hit
+        dm.setDamage(used + 1);                        // intact -> absorb fully, chip its durability
+        piece.setItemMeta(dm);
         setEquipped(victim, slot, piece);
-        victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BLOCK, 1f, 0.8f);
-        Msg.actionbar(victim, Component.text(t.display + " absorbed the round (" + (max - hits - 1) + " left)",
-            NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
+        if (used + 1 >= max) {                         // that was its last point -> it just broke
+            breakArmor(victim, t, slot);
+        } else {
+            victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BLOCK, 1f, 0.8f);
+            Msg.actionbar(victim, Component.text(t.display + " absorbed the round (" + (max - used - 1) + " left)",
+                NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
+        }
         return 0;
     }
 
@@ -1271,6 +1279,65 @@ public final class ShootListener implements Listener {
         victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BREAK, 1f, 0.7f);
         Msg.actionbar(victim, Component.text("Your " + t.display + " shattered! Repair it in SCP-914.",
             NamedTextColor.RED).decorate(TextDecoration.ITALIC));
+    }
+
+    // ------------------------------------------------------- #4 thermal insulation
+
+    private static final org.bukkit.inventory.EquipmentSlot[] ARMOR_SLOTS = {
+        org.bukkit.inventory.EquipmentSlot.HEAD, org.bukkit.inventory.EquipmentSlot.CHEST,
+        org.bukkit.inventory.EquipmentSlot.LEGS, org.bukkit.inventory.EquipmentSlot.FEET};
+
+    /** Every second: a player wearing insulating armour near fire doesn't catch alight, but the
+     *  insulating piece wears down (durability) doing it - eventually breaking like any other hit. */
+    public void insulationTick() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            if (p.getGameMode() == org.bukkit.GameMode.CREATIVE
+                || p.getGameMode() == org.bukkit.GameMode.SPECTATOR) continue;
+            int insulation = 0;
+            org.bukkit.inventory.EquipmentSlot wearSlot = null;
+            ArmorType wearType = null;
+            for (org.bukkit.inventory.EquipmentSlot slot : ARMOR_SLOTS) {
+                ArmorType t = registry.armorType(equipped(p, slot));
+                if (t == null || t.slot != slot || t.insulation <= 0) continue;
+                insulation += t.insulation;
+                if (wearSlot == null) { wearSlot = slot; wearType = t; }   // wear the first insulating piece
+            }
+            if (insulation <= 0) continue;
+            boolean onFire = p.getFireTicks() > 0;
+            if (!onFire && !nearHeat(p)) continue;
+            // Keep them from burning (more insulation = fully immune), and refresh brief fire resistance
+            // so lava/standing fire can't re-ignite between ticks.
+            p.setFireTicks(0);
+            p.addPotionEffect(new PotionEffect(org.bukkit.potion.PotionEffectType.FIRE_RESISTANCE,
+                50, 0, true, false, false));
+            chipInsulation(p, wearSlot, wearType);   // the protection costs the piece durability
+        }
+    }
+
+    /** Wear one durability point off an insulating piece; break it if that empties it. */
+    private void chipInsulation(Player p, org.bukkit.inventory.EquipmentSlot slot, ArmorType t) {
+        if (slot == null) return;
+        ItemStack piece = equipped(p, slot);
+        if (!(piece.getItemMeta() instanceof org.bukkit.inventory.meta.Damageable dm)) return;
+        int max = dm.hasMaxDamage() ? dm.getMaxDamage() : t.absorbHits;
+        int used = dm.getDamage();
+        if (used >= max) { breakArmor(p, t, slot); return; }
+        dm.setDamage(used + 1);
+        piece.setItemMeta(dm);
+        setEquipped(p, slot, piece);
+        if (used + 1 >= max) breakArmor(p, t, slot);
+    }
+
+    /** Fire, lava, magma, campfires within 2 blocks. */
+    private boolean nearHeat(Player p) {
+        var b = p.getLocation().getBlock();
+        for (int x = -2; x <= 2; x++) for (int y = -2; y <= 2; y++) for (int z = -2; z <= 2; z++) {
+            switch (b.getRelative(x, y, z).getType()) {
+                case FIRE, SOUL_FIRE, LAVA, MAGMA_BLOCK, CAMPFIRE, SOUL_CAMPFIRE -> { return true; }
+                default -> { }
+            }
+        }
+        return false;
     }
 
     /** Sweep ALL bullet-hole decals in loaded chunks - called once on enable to clear legacy

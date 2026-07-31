@@ -37,6 +37,7 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
+        getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
         getServer().getScheduler().runTask(this, shootListener::purgeAllSpeedResidue);       // clear old slow-modifier residue
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
@@ -184,7 +185,7 @@ public final class GunsPlugin extends JavaPlugin {
                 case "armor", "armour", "vest" -> {
                     if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
                     if (args.length < 2) return error(sender,
-                        "/guns armor give <id> [player] | givebroken <id> [player] | slowness <id> <percent> | list | reload");
+                        "/guns armor give <id> [player] | givebroken <id> [player] | slowness <id> <percent> | insulation <id> <level> | list | reload");
                     String sub = args[1].toLowerCase();
                     if (sub.equals("list")) {
                         if (registry.armorTypes().isEmpty())
@@ -222,6 +223,22 @@ public final class GunsPlugin extends JavaPlugin {
                             NamedTextColor.GOLD));
                         return true;
                     }
+                    if (sub.equals("insulation")) {
+                        if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
+                        if (args.length < 4) return error(sender,
+                            "/guns armor insulation <id> <level>   (0 = none, higher = more fire resistance)");
+                        if (registry.armorType(args[2]) == null)
+                            return error(sender, "Unknown armour '" + args[2] + "'. See /guns armor list.");
+                        int level;
+                        try { level = Integer.parseInt(args[3]); }
+                        catch (NumberFormatException e) { return error(sender, "Level must be a whole number."); }
+                        getConfig().set("armor-insulation." + args[2], Math.max(0, level));
+                        saveConfig();
+                        registry.loadArmor();
+                        sender.sendMessage(Component.text("Set " + args[2] + " thermal insulation to "
+                            + Math.max(0, level) + ". Re-give the piece for it to apply.", NamedTextColor.GOLD));
+                        return true;
+                    }
                     if (sub.equals("give") || sub.equals("givebroken")) {
                         if (args.length < 3) return error(sender, "/guns armor " + sub + " <id> [player]");
                         ArmorType t = registry.armorType(args[2]);
@@ -240,7 +257,7 @@ public final class GunsPlugin extends JavaPlugin {
                             + t.display + " to " + target.getName(), NamedTextColor.GOLD));
                         return true;
                     }
-                    return error(sender, "/guns armor give <id> [player] | givebroken <id> [player] | slowness <id> <percent> | list | reload");
+                    return error(sender, "/guns armor give <id> [player] | givebroken <id> [player] | slowness <id> <percent> | insulation <id> <level> | list | reload");
                 }
                 case "create" -> {
                     if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
@@ -323,14 +340,14 @@ public final class GunsPlugin extends JavaPlugin {
                         .flatMap(java.util.Collection::stream), args[1]);
                 }
                 if (args[0].equalsIgnoreCase("armor") || args[0].equalsIgnoreCase("armour")) {
-                    yield filter(Stream.of("give", "givebroken", "slowness", "list", "reload"), args[1]);
+                    yield filter(Stream.of("give", "givebroken", "slowness", "insulation", "list", "reload"), args[1]);
                 }
                 yield List.of();
             }
             case 3 -> {
                 if ((args[0].equalsIgnoreCase("armor") || args[0].equalsIgnoreCase("armour"))
                     && (args[1].equalsIgnoreCase("give") || args[1].equalsIgnoreCase("givebroken")
-                        || args[1].equalsIgnoreCase("slowness"))) {
+                        || args[1].equalsIgnoreCase("slowness") || args[1].equalsIgnoreCase("insulation"))) {
                     yield filter(registry.armorTypes().stream().map(t -> t.id), args[2]);
                 }
                 if (args[0].equalsIgnoreCase("edit")) {

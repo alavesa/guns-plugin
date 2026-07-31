@@ -35,3 +35,8 @@ armor:
 # Per-piece walk-speed overrides set by /guns armor slowness (fractions). Applies
 # to ANY piece, including the fixed vests. Hand-edit if you like.
 armor-speed: {}
+
+# Per-piece THERMAL INSULATION overrides set by /guns armor insulation (whole numbers,
+# 0 = none). Near fire an insulated piece keeps you from catching alight, but wears
+# its own durability doing so. Applies to any piece, vests included.
+armor-insulation: {}
