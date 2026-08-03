@@ -1219,23 +1219,19 @@ public final class ShootListener implements Listener {
         ItemStack piece = equipped(victim, slot);
         ArmorType t = registry.armorType(piece);
         if (t == null || t.slot != slot) return damage;   // nothing ballistic guarding that region
-        // #2: the piece's DURABILITY is its health. Each absorbed round adds a damage point; when it
-        // reaches max_damage the piece breaks (into the unwearable broken variant) and rounds pass.
-        org.bukkit.inventory.meta.Damageable dm = (org.bukkit.inventory.meta.Damageable) piece.getItemMeta();
-        int max = dm.hasMaxDamage() ? dm.getMaxDamage() : t.absorbHits;
-        int used = dm.getDamage();
-        if (used >= max) {                             // already spent -> it breaks, round gets through
+        // The break is driven by a PDC hit counter (reliable), NOT the durability reaching 0 - the
+        // durability bar is only a cosmetic health readout. Each round chips a hit; on the last one we
+        // break WITHOUT re-equipping the spent piece, so the game can never destroy it before we hand
+        // over the broken variant.
+        int max = t.absorbHits;
+        int hits = registry.vestHits(piece) + 1;
+        if (hits >= max) {                             // this round breaks it -> give the broken shell now
             breakArmor(victim, t, slot);
-            return damage;
-        }
-        dm.setDamage(used + 1);                        // intact -> absorb fully, chip its durability
-        piece.setItemMeta(dm);
-        setEquipped(victim, slot, piece);
-        if (used + 1 >= max) {                         // that was its last point -> it just broke
-            breakArmor(victim, t, slot);
-        } else {
+        } else {                                       // intact -> absorb fully; shrink the health bar
+            registry.setArmorHits(piece, hits, max);
+            setEquipped(victim, slot, piece);
             victim.getWorld().playSound(victim.getLocation(), org.bukkit.Sound.ITEM_SHIELD_BLOCK, 1f, 0.8f);
-            Msg.actionbar(victim, Component.text(t.display + " absorbed the round (" + (max - used - 1) + " left)",
+            Msg.actionbar(victim, Component.text(t.display + " absorbed the round (" + (max - hits) + " left)",
                 NamedTextColor.GRAY).decorate(TextDecoration.ITALIC));
         }
         return 0;
@@ -1314,18 +1310,16 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** Wear one durability point off an insulating piece; break it if that empties it. */
+    /** Wear one hit off an insulating piece (same PDC counter + cosmetic bar as bullets); break it if
+     *  that empties it. */
     private void chipInsulation(Player p, org.bukkit.inventory.EquipmentSlot slot, ArmorType t) {
         if (slot == null) return;
         ItemStack piece = equipped(p, slot);
-        if (!(piece.getItemMeta() instanceof org.bukkit.inventory.meta.Damageable dm)) return;
-        int max = dm.hasMaxDamage() ? dm.getMaxDamage() : t.absorbHits;
-        int used = dm.getDamage();
-        if (used >= max) { breakArmor(p, t, slot); return; }
-        dm.setDamage(used + 1);
-        piece.setItemMeta(dm);
-        setEquipped(p, slot, piece);
-        if (used + 1 >= max) breakArmor(p, t, slot);
+        if (registry.armorType(piece) == null) return;
+        int max = t.absorbHits;
+        int hits = registry.vestHits(piece) + 1;
+        if (hits >= max) { breakArmor(p, t, slot); }
+        else { registry.setArmorHits(piece, hits, max); setEquipped(p, slot, piece); }
     }
 
     /** Fire, lava, magma, campfires within 2 blocks. */

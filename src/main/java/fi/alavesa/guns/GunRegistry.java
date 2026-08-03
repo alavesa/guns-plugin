@@ -220,6 +220,23 @@ public final class GunRegistry {
         item.setItemMeta(meta);
     }
 
+    /** The cosmetic health-bar range an armour piece fills against (the break is PDC-driven, not this). */
+    public static final int ARMOR_BAR_MAX = 100;
+
+    /** Set the absorbed-round count AND the cosmetic durability bar (proportional to hits/absorbHits)
+     *  in one write, so the bar shrinks with each hit without the game destroying the piece. */
+    public void setArmorHits(ItemStack item, int hits, int absorbHits) {
+        if (item == null || !item.hasItemMeta()) return;
+        ItemMeta meta = item.getItemMeta();
+        meta.getPersistentDataContainer().set(vestHitsKey, PersistentDataType.INTEGER, Math.max(0, hits));
+        if (meta instanceof org.bukkit.inventory.meta.Damageable dm) {
+            int barMax = dm.hasMaxDamage() ? dm.getMaxDamage() : ARMOR_BAR_MAX;
+            int d = absorbHits <= 0 ? 0 : (int) Math.round((double) hits / absorbHits * barMax);
+            dm.setDamage(Math.max(0, Math.min(barMax, d)));
+        }
+        item.setItemMeta(meta);
+    }
+
     /** Build an armour piece for its slot: a dyed leather item carrying its variant id and a fresh
      *  (zero) absorbed-round count. */
     public ItemStack buildArmor(ArmorType t) {
@@ -239,9 +256,10 @@ public final class GunRegistry {
             + " - resists fire (wears the piece).",
             net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false));
         meta.lore(lore);
-        // #2 dynamic health: real DURABILITY. max_damage = absorb-hits, damage 0 (full bar). NOT
-        // unbreakable, so the vanilla durability bar shows the armour's health and shrinks per hit.
-        ((org.bukkit.inventory.meta.Damageable) meta).setMaxDamage(t.absorbHits);
+        // #2 dynamic health bar: a large COSMETIC max_damage the bar fills against. The break is driven
+        // by the vest_hits PDC counter (below), NOT by the durability reaching 0 - so the game can't
+        // destroy the piece out from under us before it hands over the broken variant.
+        ((org.bukkit.inventory.meta.Damageable) meta).setMaxDamage(ARMOR_BAR_MAX);
         ((org.bukkit.inventory.meta.Damageable) meta).setDamage(0);
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES, ItemFlag.HIDE_DYE);
         CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
