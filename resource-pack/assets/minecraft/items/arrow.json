@@ -9,6 +9,13 @@
           "type": "minecraft:model",
           "model": "guns:item/gun_round"
         }
+      },
+      {
+        "when": "bullet_tracer",
+        "model": {
+          "type": "minecraft:model",
+          "model": "guns:item/bullet_tracer"
+        }
       }
     ],
     "fallback": {

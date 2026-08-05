@@ -29,7 +29,7 @@ public final class GunRegistry {
         "name", "model", "damage", "firerate", "range", "magazine", "reloadticks",
         "sound", "soundpitch", "effect", "effectticks", "effectlevel", "ricochet", "mag",
         "speed", "curve", "spread", "aimspread", "firemodes", "recoil", "pierce",
-        "hrecoil", "ricochetangle", "casingdir", "casingpos");
+        "hrecoil", "ricochetangle", "casingdir", "casingpos", "pellets", "bulletmodel");
 
     public static final Set<String> GRENADE_EDITABLE = Set.of(
         "name", "model", "power", "fuseticks", "velocity", "breakblocks");
@@ -436,7 +436,9 @@ public final class GunRegistry {
                     clamp(id, "h-recoil", s.getDouble("h-recoil", 0.0), 0, 30),
                     clamp(id, "ricochet-angle", s.getDouble("ricochet-angle", 35.0), 0, 90),
                     s.getString("casing-dir", "1,0.6,-0.1"),
-                    s.getString("casing-pos", "0.3,-0.2,0.35")
+                    s.getString("casing-pos", "0.3,-0.2,0.35"),
+                    (int) clamp(id, "pellets", s.getInt("pellets", 1), 1, 20),
+                    s.getString("bullet-model", "")
                 ));
             }
         }
@@ -462,6 +464,34 @@ public final class GunRegistry {
                 plugin.getLogger().severe("Could not save guns.yml: " + e.getMessage());
             }
             plugin.getLogger().info("Added the default spyglass sniper to guns.yml (delete it or set sniper-offered if unwanted).");
+            load();
+            return;
+        }
+        // v0.30: a default combat SHOTGUN - fires 8 pellets in a wide, short-range spread.
+        if (yaml.getConfigurationSection("guns") != null
+            && yaml.getConfigurationSection("guns.shotgun") == null
+            && !yaml.getBoolean("shotgun-offered", false)) {
+            yaml.set("guns.shotgun.name", "&cCombat Shotgun");
+            yaml.set("guns.shotgun.model", "gun_shotgun");
+            yaml.set("guns.shotgun.damage", 3.0);
+            yaml.set("guns.shotgun.pellets", 8);
+            yaml.set("guns.shotgun.spread", 6.0);
+            yaml.set("guns.shotgun.aim-spread", 4.0);
+            yaml.set("guns.shotgun.fire-rate", 1.0);
+            yaml.set("guns.shotgun.range", 25);
+            yaml.set("guns.shotgun.magazine", 6);
+            yaml.set("guns.shotgun.reload-ticks", 60);
+            yaml.set("guns.shotgun.sound", "minecraft:entity.generic.explode");
+            yaml.set("guns.shotgun.sound-pitch", 1.2);
+            yaml.set("guns.shotgun.speed", 2.5);
+            yaml.set("guns.shotgun.mag", "shells_shotgun");
+            yaml.set("shotgun-offered", true);
+            try {
+                yaml.save(file);
+            } catch (java.io.IOException e) {
+                plugin.getLogger().severe("Could not save guns.yml: " + e.getMessage());
+            }
+            plugin.getLogger().info("Added the default combat shotgun to guns.yml (delete it or set shotgun-offered if unwanted).");
             load();
             return;
         }
@@ -713,6 +743,7 @@ public final class GunRegistry {
             case "breakblocks" -> "break-blocks";
             case "hrecoil" -> "h-recoil";
             case "ricochetangle" -> "ricochet-angle";
+            case "bulletmodel" -> "bullet-model";
             default -> stat;
         };
     }

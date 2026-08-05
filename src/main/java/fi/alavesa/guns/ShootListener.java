@@ -66,6 +66,7 @@ public final class ShootListener implements Listener {
         this.bulletShooterKey = new NamespacedKey(plugin, "bullet_shooter");
         this.bulletBouncesKey = new NamespacedKey(plugin, "bullet_bounces");
         this.bulletBornKey = new NamespacedKey(plugin, "bullet_born");
+        this.bulletDisplayKey = new NamespacedKey(plugin, "bullet_display");
         this.gunAttackerKey = new NamespacedKey(plugin, "gun_attacker");
         this.gunAttackerAtKey = new NamespacedKey(plugin, "gun_attacker_at");
         this.registry = registry;
@@ -717,9 +718,20 @@ public final class ShootListener implements Listener {
         // NOTE: no hand-dip on fire - the gun used to visibly drop on each shot; the
         // arm-swing is already cancelled by onSwing, so the gun just stays put.
         player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
+        ejectCasing(player, gun);   // one spent shell per SHOT, not per pellet
 
-        // launch a real projectile: spread cone (tighter while aiming),
-        // configurable speed, and a mid-flight arc applied by the tracker
+        // A shotgun fires several pellets at once (gun.pellets()); a normal gun fires one.
+        int pellets = Math.max(1, gun.pellets());
+        for (int i = 0; i < pellets; i++) firePellet(player, gun);
+
+        ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
+        applyRecoil(player, gun);
+    }
+
+    /** Fire ONE pellet: its own random spread, muzzle flash, point-blank hitscan, and (if it flies on)
+     *  an arrow. A shotgun calls this several times per trigger pull; recoil/casing/ammo are the
+     *  caller's job (once per shot). */
+    private void firePellet(Player player, Gun gun) {
         Vector dir = player.getEyeLocation().getDirection();
         double spread = isAiming(player) ? gun.aimSpread() : gun.spread();
         if (spread > 0) {
@@ -728,25 +740,13 @@ public final class ShootListener implements Listener {
                 Math.toRadians(rng.nextGaussian() * spread * 0.5));
         }
         dir.normalize();
-        // Fire from the GUN BARREL, not the player's head: the muzzle sits down and to
-        // the right of the eye (where the gun is in first-person). Aim the round from
-        // there toward the crosshair (a far point down the eye ray) so it still lands
-        // where you're looking.
         Location muzzle = barrelLocation(player, dir);
         Vector aimPoint = player.getEyeLocation().toVector().add(dir.clone().multiply(60));
         Vector velocity = aimPoint.clone().subtract(muzzle.toVector()).normalize().multiply(gun.speed());
 
-        // muzzle flash: a small white spark burst at the barrel
         player.getWorld().spawnParticle(Particle.DUST, muzzle, 6, 0.03, 0.03, 0.03, 0,
             new Particle.DustOptions(Color.WHITE, 0.7f));
-        ejectCasing(player, gun);   // fling a spent casing out of the ejection port
 
-        // CLOSE-RANGE HITSCAN: a fast no-gravity arrow covers its ENTIRE first tick of
-        // travel (several blocks) before the per-tick tracker runs, so a nearby wall is
-        // passed and the forward ray-trace misses it (bullet negated, no mark). So we
-        // hitscan the first tick's reach here at fire time: anything a solid distance in
-        // front - wall or enemy - is resolved now instead of by a clipping arrow. Glass
-        // shatters and the shot still spawns to carry on. Beyond this the arrow flies.
         double pbRange = Math.max(4.0, gun.speed() + 1.0);
         Location eye = player.getEyeLocation();
         RayTraceResult pb = player.getWorld().rayTrace(eye, dir, pbRange,
@@ -755,19 +755,17 @@ public final class ShootListener implements Listener {
         if (pb != null) {
             if (pb.getHitEntity() instanceof LivingEntity target) {
                 applyHit(player, gun, target, pb.getHitPosition().toLocation(player.getWorld()));
-                applyRecoil(player, gun);
-                return;
+                return;   // this pellet is spent
             }
             if (pb.getHitBlock() != null) {
                 org.bukkit.block.Block b = pb.getHitBlock();
                 if (isGlass(b.getType())) {
-                    shatterGlass(b);   // break it point-blank; the arrow below carries on
+                    shatterGlass(b);   // punch through; the arrow below carries on
                 } else {
                     Location mark = pb.getHitPosition().toLocation(player.getWorld());
                     player.getWorld().spawnParticle(Particle.SMOKE, mark, 3, 0.05, 0.05, 0.05, 0.01);
                     spawnBulletHole(b, mark, pb.getHitBlockFace());
-                    applyRecoil(player, gun);
-                    return;   // solid wall right in front - round stops here
+                    return;   // solid wall right in front - this pellet stops here
                 }
             }
         }
@@ -786,9 +784,7 @@ public final class ShootListener implements Listener {
         pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, gun.ricochet());
         pdc.set(bulletBornKey, PersistentDataType.LONG, System.currentTimeMillis());
         bullets.add(bullet.getUniqueId());
-        ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
-
-        applyRecoil(player, gun);
+        if (!gun.bulletModel().isEmpty()) attachBulletModel(bullet, gun);
     }
 
     /** The gun barrel (and muzzle-flash point): forward/right/up from the eye, where
@@ -922,12 +918,58 @@ public final class ShootListener implements Listener {
     private final NamespacedKey bulletShooterKey;
     private final NamespacedKey bulletBouncesKey;
     private final NamespacedKey bulletBornKey;
+    private final NamespacedKey bulletDisplayKey;   // links a bullet to its custom-model ItemDisplay
     /** Stamped on a player victim (shooter UUID + when) so gun kills credit the
      *  shooter in stats even when the killing blow is source-less (PvP off). */
     private final NamespacedKey gunAttackerKey;
     private final NamespacedKey gunAttackerAtKey;
     private final java.util.Set<java.util.UUID> bullets = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** bullet arrow UUID -> its custom-model ItemDisplay UUID (only for guns with a bullet-model). */
+    private final java.util.Map<java.util.UUID, java.util.UUID> bulletModels = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long BULLET_LIFETIME_MS = 5000;
+
+    /** Give a flying bullet a custom model: hide the arrow and ride a small ItemDisplay on it, so the
+     *  gun's bullet-model (a guns:… custom_model_data) is what you see streaking through the air. */
+    private void attachBulletModel(Arrow bullet, Gun gun) {
+        ItemStack model = new ItemStack(org.bukkit.Material.ARROW);
+        var meta = model.getItemMeta();
+        var cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(java.util.List.of(gun.bulletModel()));
+        meta.setCustomModelDataComponent(cmd);
+        model.setItemMeta(meta);
+        bullet.setInvisible(true);   // hide the vanilla arrow; the model stands in for it
+        org.bukkit.entity.ItemDisplay disp = bullet.getWorld().spawn(bullet.getLocation(),
+            org.bukkit.entity.ItemDisplay.class, d -> {
+                d.setItemStack(model);
+                d.setItemDisplayTransform(org.bukkit.entity.ItemDisplay.ItemDisplayTransform.FIXED);
+                d.setTeleportDuration(1);
+                d.setPersistent(false);
+                d.setViewRange(1.5f);
+            });
+        bulletModels.put(bullet.getUniqueId(), disp.getUniqueId());
+    }
+
+    /** Keep a bullet's model glued to it, pointed the way it's flying. */
+    private void syncBulletModel(Arrow bullet) {
+        java.util.UUID did = bulletModels.get(bullet.getUniqueId());
+        if (did == null) return;
+        Entity de = plugin.getServer().getEntity(did);
+        if (de instanceof org.bukkit.entity.ItemDisplay disp) {
+            Location loc = bullet.getLocation();
+            if (bullet.getVelocity().lengthSquared() > 1e-4) loc.setDirection(bullet.getVelocity());
+            disp.teleport(loc);
+        } else {
+            bulletModels.remove(bullet.getUniqueId());
+        }
+    }
+
+    /** Remove a bullet's custom-model display (call whenever the bullet is retired). */
+    private void killBulletModel(java.util.UUID bulletId) {
+        java.util.UUID did = bulletModels.remove(bulletId);
+        if (did == null) return;
+        Entity de = plugin.getServer().getEntity(did);
+        if (de != null) de.remove();
+    }
 
     /** Every tick: arc live bullets down by their gun's curve, trail them,
      *  and retire the spent ones. One global task, not one per shot. */
@@ -936,6 +978,7 @@ public final class ShootListener implements Listener {
             Entity e = plugin.getServer().getEntity(id);
             if (!(e instanceof Arrow bullet) || bullet.isDead() || !bullet.isValid()) {
                 bullets.remove(id);
+                killBulletModel(id);
                 continue;
             }
             var pdc = bullet.getPersistentDataContainer();
@@ -943,6 +986,7 @@ public final class ShootListener implements Listener {
             if (System.currentTimeMillis() - born > BULLET_LIFETIME_MS || bullet.isOnGround()) {
                 bullet.remove();
                 bullets.remove(id);
+                killBulletModel(id);
                 continue;
             }
             Gun gun = registry.get(pdc.get(bulletGunKey, PersistentDataType.STRING));
@@ -978,7 +1022,7 @@ public final class ShootListener implements Listener {
                     // entity first if it's nearer than the block
                     if (ent != null && ent.getHitEntity() instanceof LivingEntity target && entD <= blkD) {
                         applyHit(shooter, gun, target, ent.getHitPosition().toLocation(bullet.getWorld()));
-                        bullet.remove(); bullets.remove(id); continue;
+                        bullet.remove(); bullets.remove(id); killBulletModel(id); continue;
                     }
                     if (blk != null && blk.getHitBlock() != null) {
                         org.bukkit.block.Block b = blk.getHitBlock();
@@ -996,12 +1040,13 @@ public final class ShootListener implements Listener {
                                 Location mark = blk.getHitPosition().toLocation(bullet.getWorld());
                                 bullet.getWorld().spawnParticle(Particle.SMOKE, mark, 3, 0.05, 0.05, 0.05, 0.01);
                                 spawnBulletHole(b, mark, blk.getHitBlockFace());
-                                bullet.remove(); bullets.remove(id); continue;
+                                bullet.remove(); bullets.remove(id); killBulletModel(id); continue;
                             }
                         }
                     }
                 }
             }
+            syncBulletModel(bullet);   // keep the custom model glued to this bullet
             bullet.getWorld().spawnParticle(Particle.CRIT, bullet.getLocation(), 1, 0, 0, 0, 0);
         }
     }
@@ -1023,6 +1068,7 @@ public final class ShootListener implements Listener {
             applyHit(shooter, gun, target, bullet.getLocation());
             bullet.remove();
             bullets.remove(bullet.getUniqueId());
+            killBulletModel(bullet.getUniqueId());
             return;
         }
         if (event.getHitBlock() != null) {
@@ -1051,6 +1097,7 @@ public final class ShootListener implements Listener {
             spawnBulletHole(event.getHitBlock(), bullet.getLocation(), event.getHitBlockFace());
             bullet.remove();
             bullets.remove(bullet.getUniqueId());
+            killBulletModel(bullet.getUniqueId());
         }
     }
 
@@ -1172,6 +1219,9 @@ public final class ShootListener implements Listener {
             vpdc.set(gunAttackerKey, PersistentDataType.STRING, shooter.getUniqueId().toString());
             vpdc.set(gunAttackerAtKey, PersistentDataType.LONG, System.currentTimeMillis());
         }
+        // Shotgun pellets all strike in the SAME tick; vanilla i-frames would let only the biggest
+        // one land. Reset them so every pellet's damage stacks (3 pellets hit = 3 hits).
+        target.setNoDamageTicks(0);
         if (shooter != null) {
             recentGunHit.put(shooter.getUniqueId(), System.currentTimeMillis());
             firing.add(shooter.getUniqueId());

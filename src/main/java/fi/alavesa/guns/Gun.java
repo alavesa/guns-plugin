@@ -36,8 +36,13 @@ public record Gun(
     double ricochetAngle, // max angle (deg) FROM THE SURFACE for a ricochet: only shallow/grazing
                           // hits bounce; a head-on hit never does. 0 = angle gate off (no ricochet)
     String casingDir,  // ejected-casing velocity as "right,up,forward" (relative to aim); "off" = none
-    String casingPos   // casing spawn offset as "right,up,forward" from the eye
+    String casingPos,  // casing spawn offset as "right,up,forward" from the eye
+    int pellets,       // rounds fired per trigger pull (1 = normal; >1 = a shotgun spread)
+    String bulletModel // custom_model_data string for the flying bullet's model ("" = a plain arrow)
 ) {
+
+    /** A shotgun fires more than one pellet per shot. */
+    public boolean isShotgun() { return pellets > 1; }
 
     /** The trigger modes this gun offers, in order (first is the default). */
     public java.util.List<String> modes() {
