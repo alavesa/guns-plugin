@@ -1,144 +1,246 @@
 {
- "model": {
-  "type": "minecraft:select",
-  "property": "minecraft:custom_model_data",
-  "cases": [
-   {
-    "when": "gun_pistol",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_pistol"
-    }
-   },
-   {
-    "when": "gun_rifle",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_rifle"
-    }
-   },
-   {
-    "when": "gun_venom",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_venom"
-    }
-   },
-   {
-    "when": "gun_pistol_aim",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_pistol_aim"
-    }
-   },
-   {
-    "when": "gun_rifle_aim",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_rifle_aim"
-    }
-   },
-   {
-    "when": "gun_venom_aim",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_venom_aim"
-    }
-   },
-   {
-    "when": "gun_pistol_emptymag",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_pistol_emptymag"
-    }
-   },
-   {
-    "when": "gun_rifle_emptymag",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_rifle_emptymag"
-    }
-   },
-   {
-    "when": "gun_venom_emptymag",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_venom_emptymag"
-    }
-   },
-   {
-    "when": "gun_shotgun",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_shotgun"
-    }
-   },
-   {
-    "when": "gun_shotgun_aim",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_shotgun"
-    }
-   },
-   {
-    "when": "gun_shotgun_emptymag",
-    "model": {
-     "type": "minecraft:model",
-     "model": "guns:item/gun_shotgun"
-    }
-   }
-  ],
-  "fallback": {
-   "type": "minecraft:condition",
-   "property": "minecraft:using_item",
-   "on_false": {
-    "type": "minecraft:select",
-    "property": "minecraft:charge_type",
-    "cases": [
-     {
-      "when": "arrow",
-      "model": {
-       "type": "minecraft:model",
-       "model": "minecraft:item/crossbow_arrow"
+  "model": {
+    "type": "minecraft:composite",
+    "models": [
+      {
+        "type": "minecraft:select",
+        "property": "minecraft:custom_model_data",
+        "cases": [
+          {
+            "when": "gun_pistol",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_pistol"
+            }
+          },
+          {
+            "when": "gun_rifle",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_rifle"
+            }
+          },
+          {
+            "when": "gun_venom",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_venom"
+            }
+          },
+          {
+            "when": "gun_pistol_aim",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_pistol_aim"
+            }
+          },
+          {
+            "when": "gun_rifle_aim",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_rifle_aim"
+            }
+          },
+          {
+            "when": "gun_venom_aim",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_venom_aim"
+            }
+          },
+          {
+            "when": "gun_pistol_emptymag",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_pistol_emptymag"
+            }
+          },
+          {
+            "when": "gun_rifle_emptymag",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_rifle_emptymag"
+            }
+          },
+          {
+            "when": "gun_venom_emptymag",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_venom_emptymag"
+            }
+          },
+          {
+            "when": "gun_shotgun",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_shotgun"
+            }
+          },
+          {
+            "when": "gun_shotgun_aim",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_shotgun"
+            }
+          },
+          {
+            "when": "gun_shotgun_emptymag",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_shotgun"
+            }
+          }
+        ],
+        "fallback": {
+          "type": "minecraft:condition",
+          "property": "minecraft:using_item",
+          "on_false": {
+            "type": "minecraft:select",
+            "property": "minecraft:charge_type",
+            "cases": [
+              {
+                "when": "arrow",
+                "model": {
+                  "type": "minecraft:model",
+                  "model": "minecraft:item/crossbow_arrow"
+                }
+              },
+              {
+                "when": "rocket",
+                "model": {
+                  "type": "minecraft:model",
+                  "model": "minecraft:item/crossbow_firework"
+                }
+              }
+            ],
+            "fallback": {
+              "type": "minecraft:model",
+              "model": "minecraft:item/crossbow"
+            }
+          },
+          "on_true": {
+            "type": "minecraft:range_dispatch",
+            "property": "minecraft:crossbow/pull",
+            "entries": [
+              {
+                "threshold": 0.58,
+                "model": {
+                  "type": "minecraft:model",
+                  "model": "minecraft:item/crossbow_pulling_1"
+                }
+              },
+              {
+                "threshold": 1.0,
+                "model": {
+                  "type": "minecraft:model",
+                  "model": "minecraft:item/crossbow_pulling_2"
+                }
+              }
+            ],
+            "fallback": {
+              "type": "minecraft:model",
+              "model": "minecraft:item/crossbow_pulling_0"
+            }
+          }
+        },
+        "index": 0
+      },
+      {
+        "type": "minecraft:select",
+        "property": "minecraft:custom_model_data",
+        "index": 1,
+        "cases": [
+          {
+            "when": "scope",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_scope_overlay"
+            }
+          },
+          {
+            "when": "grip",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_grip_overlay"
+            }
+          },
+          {
+            "when": "heavybarrel",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_heavybarrel_overlay"
+            }
+          }
+        ],
+        "fallback": {
+          "type": "minecraft:model",
+          "model": "guns:item/nothing"
+        }
+      },
+      {
+        "type": "minecraft:select",
+        "property": "minecraft:custom_model_data",
+        "index": 2,
+        "cases": [
+          {
+            "when": "scope",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_scope_overlay"
+            }
+          },
+          {
+            "when": "grip",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_grip_overlay"
+            }
+          },
+          {
+            "when": "heavybarrel",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_heavybarrel_overlay"
+            }
+          }
+        ],
+        "fallback": {
+          "type": "minecraft:model",
+          "model": "guns:item/nothing"
+        }
+      },
+      {
+        "type": "minecraft:select",
+        "property": "minecraft:custom_model_data",
+        "index": 3,
+        "cases": [
+          {
+            "when": "scope",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_scope_overlay"
+            }
+          },
+          {
+            "when": "grip",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_grip_overlay"
+            }
+          },
+          {
+            "when": "heavybarrel",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/att_heavybarrel_overlay"
+            }
+          }
+        ],
+        "fallback": {
+          "type": "minecraft:model",
+          "model": "guns:item/nothing"
+        }
       }
-     },
-     {
-      "when": "rocket",
-      "model": {
-       "type": "minecraft:model",
-       "model": "minecraft:item/crossbow_firework"
-      }
-     }
-    ],
-    "fallback": {
-     "type": "minecraft:model",
-     "model": "minecraft:item/crossbow"
-    }
-   },
-   "on_true": {
-    "type": "minecraft:range_dispatch",
-    "property": "minecraft:crossbow/pull",
-    "entries": [
-     {
-      "threshold": 0.58,
-      "model": {
-       "type": "minecraft:model",
-       "model": "minecraft:item/crossbow_pulling_1"
-      }
-     },
-     {
-      "threshold": 1.0,
-      "model": {
-       "type": "minecraft:model",
-       "model": "minecraft:item/crossbow_pulling_2"
-      }
-     }
-    ],
-    "fallback": {
-     "type": "minecraft:model",
-     "model": "minecraft:item/crossbow_pulling_0"
-    }
-   }
+    ]
   }
- }
 }

@@ -1,0 +1,39 @@
+{
+  "textures": {
+    "0": "block/black_concrete"
+  },
+  "elements": [
+    {
+      "from": [
+        7.5,
+        11,
+        5
+      ],
+      "to": [
+        8.5,
+        13,
+        10
+      ],
+      "faces": {
+        "north": {
+          "texture": "#0"
+        },
+        "south": {
+          "texture": "#0"
+        },
+        "east": {
+          "texture": "#0"
+        },
+        "west": {
+          "texture": "#0"
+        },
+        "up": {
+          "texture": "#0"
+        },
+        "down": {
+          "texture": "#0"
+        }
+      }
+    }
+  ]
+}

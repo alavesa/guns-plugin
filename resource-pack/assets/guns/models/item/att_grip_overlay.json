@@ -1,0 +1,39 @@
+{
+  "textures": {
+    "0": "block/polished_blackstone"
+  },
+  "elements": [
+    {
+      "from": [
+        7.3,
+        4,
+        9.5
+      ],
+      "to": [
+        8.7,
+        7,
+        11
+      ],
+      "faces": {
+        "north": {
+          "texture": "#0"
+        },
+        "south": {
+          "texture": "#0"
+        },
+        "east": {
+          "texture": "#0"
+        },
+        "west": {
+          "texture": "#0"
+        },
+        "up": {
+          "texture": "#0"
+        },
+        "down": {
+          "texture": "#0"
+        }
+      }
+    }
+  ]
+}
