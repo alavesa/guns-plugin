@@ -67,6 +67,7 @@ public final class ShootListener implements Listener {
         this.bulletBouncesKey = new NamespacedKey(plugin, "bullet_bounces");
         this.bulletBornKey = new NamespacedKey(plugin, "bullet_born");
         this.bulletDisplayKey = new NamespacedKey(plugin, "bullet_display");
+        this.bulletDmgMultKey = new NamespacedKey(plugin, "bullet_dmg_mult");
         this.gunAttackerKey = new NamespacedKey(plugin, "gun_attacker");
         this.gunAttackerAtKey = new NamespacedKey(plugin, "gun_attacker_at");
         this.registry = registry;
@@ -340,13 +341,14 @@ public final class ShootListener implements Listener {
 
     /** Set the held gun's model to its empty-magazine variant (shown while reloading). */
     private void showEmptyModel(Player player, ItemStack item, Gun gun) {
-        setModelString(item, gun.model() + EMPTY_SUFFIX);
+        setModelString(item, registry.effectiveModel(item, gun) + EMPTY_SUFFIX);
         player.getInventory().setItemInMainHand(item);
     }
 
-    /** Restore the held gun's model to normal (or ironsights if the player is aiming). */
+    /** Restore the held gun's model to normal (or ironsights if the player is aiming). Attachments
+     *  append their suffix so the gun physically shows them. */
     private void showNormalModel(Player player, ItemStack item, Gun gun) {
-        setModelString(item, gun.model() + (aiming.contains(player.getUniqueId()) ? AIM_SUFFIX : ""));
+        setModelString(item, registry.effectiveModel(item, gun) + (aiming.contains(player.getUniqueId()) ? AIM_SUFFIX : ""));
         player.getInventory().setItemInMainHand(item);
     }
 
@@ -722,18 +724,19 @@ public final class ShootListener implements Listener {
 
         // A shotgun fires several pellets at once (gun.pellets()); a normal gun fires one.
         int pellets = Math.max(1, gun.pellets());
-        for (int i = 0; i < pellets; i++) firePellet(player, gun);
+        for (int i = 0; i < pellets; i++) firePellet(player, gun, item);
 
         ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
-        applyRecoil(player, gun);
+        applyRecoil(player, gun, item);
     }
 
     /** Fire ONE pellet: its own random spread, muzzle flash, point-blank hitscan, and (if it flies on)
      *  an arrow. A shotgun calls this several times per trigger pull; recoil/casing/ammo are the
      *  caller's job (once per shot). */
-    private void firePellet(Player player, Gun gun) {
+    private void firePellet(Player player, Gun gun, ItemStack heldGun) {
+        double dmgMult = registry.attachDamageMult(heldGun);   // attachments scale damage
         Vector dir = player.getEyeLocation().getDirection();
-        double spread = isAiming(player) ? gun.aimSpread() : gun.spread();
+        double spread = (isAiming(player) ? gun.aimSpread() : gun.spread()) * registry.attachSpreadMult(heldGun);
         if (spread > 0) {
             var rng = java.util.concurrent.ThreadLocalRandom.current();
             dir = rotate(dir, Math.toRadians(rng.nextGaussian() * spread * 0.5),
@@ -754,7 +757,7 @@ public final class ShootListener implements Listener {
             e -> e instanceof LivingEntity && e != player && !bullets.contains(e.getUniqueId()));
         if (pb != null) {
             if (pb.getHitEntity() instanceof LivingEntity target) {
-                applyHit(player, gun, target, pb.getHitPosition().toLocation(player.getWorld()));
+                applyHit(player, gun, target, pb.getHitPosition().toLocation(player.getWorld()), dmgMult);
                 return;   // this pellet is spent
             }
             if (pb.getHitBlock() != null) {
@@ -783,6 +786,7 @@ public final class ShootListener implements Listener {
         pdc.set(bulletShooterKey, PersistentDataType.STRING, player.getUniqueId().toString());
         pdc.set(bulletBouncesKey, PersistentDataType.INTEGER, gun.ricochet());
         pdc.set(bulletBornKey, PersistentDataType.LONG, System.currentTimeMillis());
+        pdc.set(bulletDmgMultKey, PersistentDataType.DOUBLE, dmgMult);   // attachments' damage scaling
         bullets.add(bullet.getUniqueId());
         if (!gun.bulletModel().isEmpty()) attachBulletModel(bullet, gun);
     }
@@ -817,7 +821,7 @@ public final class ShootListener implements Listener {
      *  - KICK: a one-off client motion packet (SetEntityMotion) shoves the view up/back per shot -
      *    the punch that reads as the FOV lurch, with no speed change and no permanent knock.
      *  - NO RUN: sprint is blocked while firing (walking is untouched). */
-    private void applyRecoil(Player player, Gun gun) {
+    private void applyRecoil(Player player, Gun gun, ItemStack heldGun) {
         if (player.isInsideVehicle()) return;   // never disturb a seated (driving) player
 
         // No RUNNING while firing (walking is fine) - a short window, refreshed each shot. This is
@@ -834,7 +838,8 @@ public final class ShootListener implements Listener {
         // above replaces every old movement effect (knockback etc.), and it only vetoes sprinting.
 
         if (!plugin.getConfig().getBoolean("camera-recoil", true)) return;
-        double up = gun.recoil(), side = gun.hRecoil();
+        double kb = registry.attachRecoilMult(heldGun);   // grips lower it, heavy barrels raise it
+        double up = gun.recoil() * kb, side = gun.hRecoil() * kb;
         if (up <= 0 && side <= 0) return;
         final int steps = Math.max(1, plugin.getConfig().getInt("recoil-pans", 30));   // 30 pans
         final float yawSign = java.util.concurrent.ThreadLocalRandom.current().nextBoolean() ? 1f : -1f;
@@ -919,6 +924,7 @@ public final class ShootListener implements Listener {
     private final NamespacedKey bulletBouncesKey;
     private final NamespacedKey bulletBornKey;
     private final NamespacedKey bulletDisplayKey;   // links a bullet to its custom-model ItemDisplay
+    private final NamespacedKey bulletDmgMultKey;   // attachment damage multiplier stamped at fire time
     /** Stamped on a player victim (shooter UUID + when) so gun kills credit the
      *  shooter in stats even when the killing blow is source-less (PvP off). */
     private final NamespacedKey gunAttackerKey;
@@ -1021,7 +1027,8 @@ public final class ShootListener implements Listener {
                         ? blk.getHitPosition().distanceSquared(from.toVector()) : Double.MAX_VALUE;
                     // entity first if it's nearer than the block
                     if (ent != null && ent.getHitEntity() instanceof LivingEntity target && entD <= blkD) {
-                        applyHit(shooter, gun, target, ent.getHitPosition().toLocation(bullet.getWorld()));
+                        applyHit(shooter, gun, target, ent.getHitPosition().toLocation(bullet.getWorld()),
+                            pdc.getOrDefault(bulletDmgMultKey, PersistentDataType.DOUBLE, 1.0));
                         bullet.remove(); bullets.remove(id); killBulletModel(id); continue;
                     }
                     if (blk != null && blk.getHitBlock() != null) {
@@ -1065,7 +1072,8 @@ public final class ShootListener implements Listener {
 
         if (event.getHitEntity() instanceof LivingEntity target
             && target != shooter && gun != null) {
-            applyHit(shooter, gun, target, bullet.getLocation());
+            applyHit(shooter, gun, target, bullet.getLocation(),
+                pdc.getOrDefault(bulletDmgMultKey, PersistentDataType.DOUBLE, 1.0));
             bullet.remove();
             bullets.remove(bullet.getUniqueId());
             killBulletModel(bullet.getUniqueId());
@@ -1180,7 +1188,11 @@ public final class ShootListener implements Listener {
     }
 
     private void applyHit(Player shooter, Gun gun, LivingEntity target, Location end) {
-        double damage = gun.damage();
+        applyHit(shooter, gun, target, end, 1.0);
+    }
+
+    private void applyHit(Player shooter, Gun gun, LivingEntity target, Location end, double damageMult) {
+        double damage = gun.damage() * damageMult;
 
         // Hit location (players only): tell the victim where the round landed, and
         // scale damage - headshots hurt more, leg/foot hits are grazes.

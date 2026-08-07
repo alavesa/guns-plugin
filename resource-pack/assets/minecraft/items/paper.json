@@ -1,0 +1,12 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:custom_model_data",
+    "cases": [
+      { "when": "att_scope",       "model": { "type": "minecraft:model", "model": "guns:item/att_scope" } },
+      { "when": "att_grip",        "model": { "type": "minecraft:model", "model": "guns:item/att_grip" } },
+      { "when": "att_heavybarrel", "model": { "type": "minecraft:model", "model": "guns:item/att_heavybarrel" } }
+    ],
+    "fallback": { "type": "minecraft:model", "model": "minecraft:item/paper" }
+  }
+}

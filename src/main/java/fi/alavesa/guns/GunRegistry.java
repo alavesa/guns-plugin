@@ -1,6 +1,7 @@
 package fi.alavesa.guns;
 
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Material;
@@ -62,6 +63,10 @@ public final class GunRegistry {
     private final NamespacedKey vestHitsKey;
     private final NamespacedKey vestBrokenKey;
     private final NamespacedKey armorIdKey;
+    private final NamespacedKey attachIdKey = new NamespacedKey("guns", "attachment_id");   // on an attachment item
+    private final NamespacedKey gunAttachKey = new NamespacedKey("guns", "gun_attachments"); // CSV of ids on a gun
+    /** Config-defined attachments by id. */
+    private final Map<String, Attachment> attachments = new LinkedHashMap<>();
     /** Config-defined armour variants (any slot), by id. */
     private final java.util.LinkedHashMap<String, ArmorType> armor = new java.util.LinkedHashMap<>();
     /** Live ammo per gun INSTANCE, held in RAM keyed by the item's instance id. Ammo lives
@@ -364,6 +369,131 @@ public final class GunRegistry {
 
     public NamespacedKey grenadeKey() { return grenadeKey; }
 
+    // ============================================================ attachments
+
+    /** Seed default example attachments once, then load the attachments.<id> section. */
+    private void loadAttachments() {
+        attachments.clear();
+        if (yaml.getConfigurationSection("attachments") == null && !yaml.getBoolean("attachments-offered", false)) {
+            yaml.set("attachments.scope.name", "&bTactical Scope");
+            yaml.set("attachments.scope.item-model", "att_scope");
+            yaml.set("attachments.scope.gun-suffix", "scope");
+            yaml.set("attachments.scope.spread-mult", 0.5);
+            yaml.set("attachments.scope.recoil-mult", 1.1);
+            yaml.set("attachments.scope.lore", "&a+Accuracy  &c-a touch more kick");
+            yaml.set("attachments.grip.name", "&7Foregrip");
+            yaml.set("attachments.grip.item-model", "att_grip");
+            yaml.set("attachments.grip.gun-suffix", "grip");
+            yaml.set("attachments.grip.recoil-mult", 0.6);
+            yaml.set("attachments.grip.lore", "&a-40% recoil");
+            yaml.set("attachments.heavybarrel.name", "&8Heavy Barrel");
+            yaml.set("attachments.heavybarrel.item-model", "att_heavybarrel");
+            yaml.set("attachments.heavybarrel.gun-suffix", "heavybarrel");
+            yaml.set("attachments.heavybarrel.damage-mult", 1.25);
+            yaml.set("attachments.heavybarrel.recoil-mult", 1.2);
+            yaml.set("attachments.heavybarrel.lore", "&a+25% damage  &c-more recoil");
+            yaml.set("attachments-offered", true);
+            try { yaml.save(file); } catch (java.io.IOException e) {
+                plugin.getLogger().severe("Could not save guns.yml: " + e.getMessage());
+            }
+        }
+        ConfigurationSection aroot = yaml.getConfigurationSection("attachments");
+        if (aroot == null) return;
+        for (String id : aroot.getKeys(false)) {
+            ConfigurationSection s = aroot.getConfigurationSection(id);
+            if (s == null) continue;
+            attachments.put(id.toLowerCase(), new Attachment(
+                id.toLowerCase(),
+                s.getString("name", id),
+                s.getString("item-model", "att_" + id),
+                s.getString("gun-suffix", id.toLowerCase()),
+                clamp(id, "recoil-mult", s.getDouble("recoil-mult", 1.0), 0, 5),
+                clamp(id, "spread-mult", s.getDouble("spread-mult", 1.0), 0, 5),
+                clamp(id, "damage-mult", s.getDouble("damage-mult", 1.0), 0, 5),
+                s.getString("lore", "")));
+        }
+    }
+
+    public Map<String, Attachment> attachments() { return attachments; }
+    public Attachment attachment(String id) { return id == null ? null : attachments.get(id.toLowerCase()); }
+
+    public boolean isAttachment(ItemStack i) {
+        return i != null && i.hasItemMeta()
+            && i.getItemMeta().getPersistentDataContainer().has(attachIdKey, PersistentDataType.STRING);
+    }
+    public String attachmentId(ItemStack i) {
+        return isAttachment(i) ? i.getItemMeta().getPersistentDataContainer().get(attachIdKey, PersistentDataType.STRING) : null;
+    }
+
+    /** The attachment item you hold and then apply to a gun. */
+    public ItemStack buildAttachment(String id) {
+        Attachment a = attachment(id);
+        if (a == null) return null;
+        ItemStack it = new ItemStack(Material.PAPER);
+        ItemMeta meta = it.getItemMeta();
+        applyCosmetics(meta, a.name(), a.itemModel());
+        if (!a.lore().isEmpty()) meta.lore(List.of(
+            LegacyComponentSerializer.legacyAmpersand().deserialize(a.lore()).decoration(TextDecoration.ITALIC, false),
+            Component.text("Hold a gun + /guns attach " + a.id(), NamedTextColor.DARK_GRAY).decoration(TextDecoration.ITALIC, false)));
+        meta.getPersistentDataContainer().set(attachIdKey, PersistentDataType.STRING, a.id());
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    public java.util.List<String> gunAttachments(ItemStack gun) {
+        if (gun == null || !gun.hasItemMeta()) return java.util.List.of();
+        String csv = gun.getItemMeta().getPersistentDataContainer().getOrDefault(gunAttachKey, PersistentDataType.STRING, "");
+        return csv.isEmpty() ? java.util.List.of() : java.util.Arrays.asList(csv.split(","));
+    }
+    private void setGunAttachments(ItemStack gun, java.util.List<String> list) {
+        ItemMeta meta = gun.getItemMeta();
+        meta.getPersistentDataContainer().set(gunAttachKey, PersistentDataType.STRING, String.join(",", list));
+        gun.setItemMeta(meta);
+    }
+    public boolean attachToGun(ItemStack gun, String attId) {
+        Attachment a = attachment(attId);
+        if (a == null) return false;
+        var list = new java.util.ArrayList<>(gunAttachments(gun));
+        if (list.contains(a.id())) return false;
+        list.add(a.id());
+        setGunAttachments(gun, list);
+        return true;
+    }
+    public boolean detachFromGun(ItemStack gun, String attId) {
+        var list = new java.util.ArrayList<>(gunAttachments(gun));
+        if (!list.remove(attId == null ? "" : attId.toLowerCase())) return false;
+        setGunAttachments(gun, list);
+        return true;
+    }
+    private double mult(ItemStack gun, java.util.function.ToDoubleFunction<Attachment> f) {
+        double m = 1.0;
+        for (String id : gunAttachments(gun)) { Attachment a = attachment(id); if (a != null) m *= f.applyAsDouble(a); }
+        return m;
+    }
+    public double attachRecoilMult(ItemStack gun) { return mult(gun, Attachment::recoilMult); }
+    public double attachSpreadMult(ItemStack gun) { return mult(gun, Attachment::spreadMult); }
+    public double attachDamageMult(ItemStack gun) { return mult(gun, Attachment::damageMult); }
+
+    /** The gun's model with its (first) attachment's suffix appended, so the pack can show it
+     *  physically on the gun. The pack needs a gun_&lt;id&gt;_&lt;suffix&gt; model for the combo. */
+    public String effectiveModel(ItemStack gun, Gun g) {
+        for (String id : gunAttachments(gun)) {
+            Attachment a = attachment(id);
+            if (a != null && !a.gunSuffix().isEmpty()) return g.model() + "_" + a.gunSuffix();
+        }
+        return g.model();
+    }
+
+    /** Re-point a held gun's model to its current attachment combo (normal, un-aimed state). */
+    public void refreshGunModel(ItemStack gun, Gun g) {
+        ItemMeta meta = gun.getItemMeta();
+        if (meta == null) return;
+        CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
+        cmd.setStrings(List.of(effectiveModel(gun, g)));
+        meta.setCustomModelDataComponent(cmd);
+        gun.setItemMeta(meta);
+    }
+
     public void load() {
         file = new File(plugin.getDataFolder(), "guns.yml");
         if (!file.exists()) plugin.saveResource("guns.yml", false);
@@ -372,6 +502,7 @@ public final class GunRegistry {
         guns.clear();
         grenades.clear();
         mags.clear();
+        loadAttachments();
         // Mags load first so guns can validate their mag reference below.
         ConfigurationSection mroot = yaml.getConfigurationSection("mags");
         if (mroot != null) {

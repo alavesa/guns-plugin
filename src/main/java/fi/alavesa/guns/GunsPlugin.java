@@ -3,6 +3,7 @@ package fi.alavesa.guns;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -182,6 +183,43 @@ public final class GunsPlugin extends JavaPlugin {
                     sender.sendMessage(Component.text("Gave " + args[1].toLowerCase() + " to " + target.getName(), NamedTextColor.GOLD));
                     return true;
                 }
+                case "attachments" -> {
+                    if (registry.attachments().isEmpty()) return error(sender, "No attachments defined (attachments: in guns.yml).");
+                    sender.sendMessage(Component.text("Attachments:", NamedTextColor.GOLD));
+                    for (Attachment a : registry.attachments().values())
+                        sender.sendMessage(Component.text("  " + a.id() + " — recoil x" + a.recoilMult()
+                            + ", spread x" + a.spreadMult() + ", damage x" + a.damageMult(), NamedTextColor.GRAY));
+                    return true;
+                }
+                case "giveattachment" -> {
+                    if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
+                    if (args.length < 2) return error(sender, "/guns giveattachment <id> [player]");
+                    ItemStack att = registry.buildAttachment(args[1]);
+                    if (att == null) return error(sender, "Unknown attachment: " + args[1]);
+                    boolean other = args.length >= 3;
+                    if (other && !sender.hasPermission("guns.admin")) return error(sender, "You can only give to yourself.");
+                    Player t = other ? Bukkit.getPlayerExact(args[2]) : (sender instanceof Player p ? p : null);
+                    if (t == null) return error(sender, "Player not found.");
+                    t.getInventory().addItem(att);
+                    sender.sendMessage(Component.text("Gave attachment " + args[1].toLowerCase() + " to " + t.getName(), NamedTextColor.GOLD));
+                    return true;
+                }
+                case "attach", "detach" -> {
+                    if (!(sender instanceof Player p)) return error(sender, "Players only.");
+                    if (args.length < 2) return error(sender, "/guns " + args[0].toLowerCase() + " <attachmentId> (hold the gun)");
+                    ItemStack held = p.getInventory().getItemInMainHand();
+                    Gun g = registry.gunOf(held);
+                    if (g == null) return error(sender, "Hold the gun you want to modify.");
+                    if (registry.attachment(args[1]) == null) return error(sender, "Unknown attachment: " + args[1]);
+                    boolean attach = args[0].equalsIgnoreCase("attach");
+                    boolean ok = attach ? registry.attachToGun(held, args[1]) : registry.detachFromGun(held, args[1]);
+                    if (!ok) return error(sender, attach ? "That attachment is already on this gun." : "That attachment isn't on this gun.");
+                    registry.refreshGunModel(held, g);
+                    p.getInventory().setItemInMainHand(held);
+                    p.sendMessage(Component.text((attach ? "Attached " : "Removed ") + args[1].toLowerCase()
+                        + ". Attachments: " + String.join(", ", registry.gunAttachments(held)), NamedTextColor.GOLD));
+                    return true;
+                }
                 case "armor", "armour", "vest" -> {
                     if (!sender.hasPermission("guns.give")) return error(sender, "No permission.");
                     if (args.length < 2) return error(sender,
@@ -329,8 +367,13 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode", "armor"), args[0]);
+            case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode", "armor",
+                "attachments", "giveattachment", "attach", "detach"), args[0]);
             case 2 -> {
+                if (args[0].equalsIgnoreCase("giveattachment") || args[0].equalsIgnoreCase("attach")
+                    || args[0].equalsIgnoreCase("detach")) {
+                    yield filter(registry.attachments().keySet().stream(), args[1]);
+                }
                 if (args[0].equalsIgnoreCase("give") || args[0].equalsIgnoreCase("edit")) {
                     yield filter(Stream.of(registry.ids(), registry.grenadeIds(), registry.magIds())
                         .flatMap(java.util.Collection::stream), args[1]);
