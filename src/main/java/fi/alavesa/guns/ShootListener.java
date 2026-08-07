@@ -210,7 +210,9 @@ public final class ShootListener implements Listener {
             ? (model.endsWith(AIM_SUFFIX) ? model : model + AIM_SUFFIX)
             : (model.endsWith(AIM_SUFFIX) ? model.substring(0, model.length() - AIM_SUFFIX.length()) : model);
         if (want.equals(model)) return false;
-        cmd.setStrings(java.util.List.of(want));
+        java.util.List<String> updated = new java.util.ArrayList<>(strings);   // keep attachment overlay strings
+        updated.set(0, want);
+        cmd.setStrings(updated);
         meta.setCustomModelDataComponent(cmd);
         item.setItemMeta(meta);
         return true;
@@ -341,22 +343,22 @@ public final class ShootListener implements Listener {
 
     /** Set the held gun's model to its empty-magazine variant (shown while reloading). */
     private void showEmptyModel(Player player, ItemStack item, Gun gun) {
-        setModelString(item, registry.effectiveModel(item, gun) + EMPTY_SUFFIX);
+        setModelStrings(item, registry.modelStrings(item, gun.model() + EMPTY_SUFFIX));
         player.getInventory().setItemInMainHand(item);
     }
 
-    /** Restore the held gun's model to normal (or ironsights if the player is aiming). Attachments
-     *  append their suffix so the gun physically shows them. */
+    /** Restore the held gun's model to normal (or ironsights if the player is aiming). Attachment
+     *  overlay strings ride along (index 0 is the base state; attachments follow, added not swapped). */
     private void showNormalModel(Player player, ItemStack item, Gun gun) {
-        setModelString(item, registry.effectiveModel(item, gun) + (aiming.contains(player.getUniqueId()) ? AIM_SUFFIX : ""));
+        setModelStrings(item, registry.modelStrings(item, gun.model() + (aiming.contains(player.getUniqueId()) ? AIM_SUFFIX : "")));
         player.getInventory().setItemInMainHand(item);
     }
 
-    private void setModelString(ItemStack item, String model) {
+    private void setModelStrings(ItemStack item, java.util.List<String> strings) {
         var meta = item.getItemMeta();
         if (meta == null) return;
         var cmd = meta.getCustomModelDataComponent();
-        cmd.setStrings(java.util.List.of(model));
+        cmd.setStrings(strings);
         meta.setCustomModelDataComponent(cmd);
         item.setItemMeta(meta);
     }
@@ -719,7 +721,14 @@ public final class ShootListener implements Listener {
         }
         // NOTE: no hand-dip on fire - the gun used to visibly drop on each shot; the
         // arm-swing is already cancelled by onSwing, so the gun just stays put.
-        player.getWorld().playSound(player.getEyeLocation(), gun.sound(), 1f, gun.soundPitch());
+        // Sound quality (set in the Facility settings menu, shared scp:sound_quality key): LOW players
+        // hear a plain vanilla sound instead of the custom pack sound. Default HIGH (custom).
+        String sq = player.getPersistentDataContainer().getOrDefault(
+            new NamespacedKey("scp", "sound_quality"), PersistentDataType.STRING, "high");
+        String shotSound = sq.equals("low")
+            ? plugin.getConfig().getString("low-quality-sound", "minecraft:entity.generic.explode")
+            : gun.sound();
+        player.getWorld().playSound(player.getEyeLocation(), shotSound, 1f, gun.soundPitch());
         ejectCasing(player, gun);   // one spent shell per SHOT, not per pellet
 
         // A shotgun fires several pellets at once (gun.pellets()); a normal gun fires one.

@@ -474,22 +474,28 @@ public final class GunRegistry {
     public double attachSpreadMult(ItemStack gun) { return mult(gun, Attachment::spreadMult); }
     public double attachDamageMult(ItemStack gun) { return mult(gun, Attachment::damageMult); }
 
-    /** The gun's model with its (first) attachment's suffix appended, so the pack can show it
-     *  physically on the gun. The pack needs a gun_&lt;id&gt;_&lt;suffix&gt; model for the combo. */
+    /** The gun's base model state string (index 0 of custom_model_data). Attachments do NOT swap the
+     *  whole gun model - they're carried as EXTRA custom_model_data strings (see {@link #modelStrings})
+     *  so the pack can composite an attachment overlay ON the base model. */
     public String effectiveModel(ItemStack gun, Gun g) {
-        for (String id : gunAttachments(gun)) {
-            Attachment a = attachment(id);
-            if (a != null && !a.gunSuffix().isEmpty()) return g.model() + "_" + a.gunSuffix();
-        }
         return g.model();
     }
 
-    /** Re-point a held gun's model to its current attachment combo (normal, un-aimed state). */
+    /** The full custom_model_data string list for a gun: [base-state, attachment ids...]. A composite
+     *  item model renders the base gun (index 0) plus an overlay per attachment (index 1+). */
+    public List<String> modelStrings(ItemStack gun, String stateModel) {
+        List<String> out = new java.util.ArrayList<>();
+        out.add(stateModel);
+        out.addAll(gunAttachments(gun));   // extra strings = attachment overlays, added not swapped
+        return out;
+    }
+
+    /** Re-point a held gun's model to the base + its attachment overlay strings (normal, un-aimed). */
     public void refreshGunModel(ItemStack gun, Gun g) {
         ItemMeta meta = gun.getItemMeta();
         if (meta == null) return;
         CustomModelDataComponent cmd = meta.getCustomModelDataComponent();
-        cmd.setStrings(List.of(effectiveModel(gun, g)));
+        cmd.setStrings(modelStrings(gun, g.model()));
         meta.setCustomModelDataComponent(cmd);
         gun.setItemMeta(meta);
     }
