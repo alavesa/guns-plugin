@@ -34,10 +34,12 @@ public final class GunSelector implements Listener, Runnable {
 
     private boolean enabled() { return plugin.getConfig().getBoolean("scroll-selector", true); }
 
-    /** Gun slots (0-8), lowest first - the loadout order. */
+    /** Gun slots (0-8), lowest first - the loadout order. Capped at 4 weapon slots. */
+    private static final int MAX_SLOTS = 4;
     private List<Integer> gunSlots(Player p) {
         List<Integer> out = new ArrayList<>();
-        for (int i = 0; i < 9; i++) if (registry.gunOf(p.getInventory().getItem(i)) != null) out.add(i);
+        for (int i = 0; i < 9 && out.size() < MAX_SLOTS; i++)
+            if (registry.gunOf(p.getInventory().getItem(i)) != null) out.add(i);
         return out;
     }
 
