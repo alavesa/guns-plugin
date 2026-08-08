@@ -89,6 +89,34 @@
               "type": "minecraft:model",
               "model": "guns:item/gun_shotgun"
             }
+          },
+          {
+            "when": "gun_pistol_recoil",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_pistol_recoil"
+            }
+          },
+          {
+            "when": "gun_rifle_recoil",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_rifle_recoil"
+            }
+          },
+          {
+            "when": "gun_venom_recoil",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_venom_recoil"
+            }
+          },
+          {
+            "when": "gun_shotgun_recoil",
+            "model": {
+              "type": "minecraft:model",
+              "model": "guns:item/gun_shotgun_recoil"
+            }
           }
         ],
         "fallback": {

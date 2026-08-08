@@ -737,6 +737,29 @@ public final class ShootListener implements Listener {
 
         ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
         applyRecoil(player, gun, item);
+        playRecoilFrame(player, item);
+    }
+
+    /** First-person recoil KICK: swap the held gun's model to its "_recoil" frame for ~2 ticks via a
+     *  visual equipment packet (no re-equip bob), then restore. The pack supplies gun_&lt;model&gt;_recoil
+     *  (the model kicked back in firstperson). Hip-fire only - aiming keeps its ironsights pose. */
+    private void playRecoilFrame(Player player, ItemStack held) {
+        if (isAiming(player) || held == null || !held.hasItemMeta()) return;
+        var meta = held.getItemMeta();
+        var strings = new java.util.ArrayList<>(meta.getCustomModelDataComponent().getStrings());
+        if (strings.isEmpty() || strings.get(0).endsWith(AIM_SUFFIX) || strings.get(0).endsWith("_recoil")) return;
+        ItemStack kicked = held.clone();
+        var km = kicked.getItemMeta();
+        var kc = km.getCustomModelDataComponent();
+        strings.set(0, strings.get(0) + "_recoil");   // e.g. gun_rifle -> gun_rifle_recoil (attachments ride along)
+        kc.setStrings(strings);
+        km.setCustomModelDataComponent(kc);
+        kicked.setItemMeta(km);
+        player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.HAND, kicked);
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline())
+                player.sendEquipmentChange(player, org.bukkit.inventory.EquipmentSlot.HAND, player.getInventory().getItemInMainHand());
+        }, 2L);
     }
 
     /** Fire ONE pellet: its own random spread, muzzle flash, point-blank hitscan, and (if it flies on)

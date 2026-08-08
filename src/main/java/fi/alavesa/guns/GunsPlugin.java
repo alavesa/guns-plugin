@@ -42,6 +42,9 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
         getServer().getScheduler().runTask(this, shootListener::purgeAllSpeedResidue);       // clear old slow-modifier residue
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
+        GunSelector selector = new GunSelector(this, registry);
+        getServer().getPluginManager().registerEvents(selector, this);
+        getServer().getScheduler().runTaskTimer(this, selector, 1L, 1L);   // equip-on-scroll-stop
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
         // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks
