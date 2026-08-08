@@ -42,18 +42,19 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
         getServer().getScheduler().runTask(this, shootListener::purgeAllSpeedResidue);       // clear old slow-modifier residue
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
-        GunSelector selector = new GunSelector(this, registry);
-        getServer().getPluginManager().registerEvents(selector, this);
-        getServer().getScheduler().runTaskTimer(this, selector, 1L, 1L);   // equip-on-scroll-stop
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
         // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks
         // keeps it correct across item switches/pickups; shots and reloads update it instantly.
+        // The weapon-selector indicator ("[2/4]" = which of your equipped guns is in hand, max 4
+        // slots) rides on this same bar - the hotbar itself stays 100% vanilla, so you can freely
+        // scroll to any item, gun or not. No scroll hijack, no separate action-bar line.
         getServer().getScheduler().runTaskTimer(this, () -> {
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
                 if (gun != null) {
+                    ammoBar.setSlotTag(player, weaponSlotTag(player, registry));
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
                 } else {
@@ -64,6 +65,21 @@ public final class GunsPlugin extends JavaPlugin {
 
         getLogger().info("Guns enabled - guns: " + registry.ids() + ", grenades: " + registry.grenadeIds()
             + ", mags: " + registry.magIds());
+    }
+
+    /** "[2/4]" = the held gun is the 2nd of up to 4 equipped guns (lowest hotbar slot first).
+     *  null when there's only one gun (nothing to select between) or the held gun is past slot 4. */
+    private static String weaponSlotTag(org.bukkit.entity.Player p, GunRegistry registry) {
+        final int MAX_SLOTS = 4;
+        int held = p.getInventory().getHeldItemSlot();
+        int total = 0, idx = -1;
+        for (int i = 0; i < 9 && total < MAX_SLOTS; i++) {
+            if (registry.gunOf(p.getInventory().getItem(i)) != null) {
+                if (i == held) idx = total;
+                total++;
+            }
+        }
+        return (total > 1 && idx >= 0) ? "[" + (idx + 1) + "/" + total + "]" : null;
     }
 
     @Override
