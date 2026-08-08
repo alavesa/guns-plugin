@@ -26,14 +26,6 @@ public final class AmmoBar {
     private static final int MAX_SYMBOLS = 30;      // don't draw a mile of bullets
 
     private final Map<UUID, BossBar> bars = new ConcurrentHashMap<>();
-    /** weapon-selector indicator (e.g. "[2/4]") shown on the bar; null = none. */
-    private final Map<UUID, String> slotTag = new ConcurrentHashMap<>();
-
-    /** Set the "which equipped gun is in hand" tag drawn on the ammo bar. */
-    public void setSlotTag(Player player, String tag) {
-        if (tag == null) slotTag.remove(player.getUniqueId());
-        else slotTag.put(player.getUniqueId(), tag);
-    }
 
     public void update(Player player, Gun gun, int ammo, String mode) {
         update(player, gun, ammo, mode, -1);
@@ -54,10 +46,7 @@ public final class AmmoBar {
         Component bullets = Component.text(FULL.repeat(full) + EMPTY.repeat(slots - full))
             .font(AMMO_FONT);
 
-        String tag = slotTag.get(player.getUniqueId());
-        Component title = (tag == null ? Component.empty()
-                : Component.text(tag + " ", NamedTextColor.AQUA))
-            .append(LegacyComponentSerializer.legacyAmpersand().deserialize(gun.name()))
+        Component title = LegacyComponentSerializer.legacyAmpersand().deserialize(gun.name())
             .append(Component.text("  "))
             .append(bullets)
             .append(Component.text("  " + ammo + " / " + mag,
@@ -84,7 +73,6 @@ public final class AmmoBar {
     }
 
     public void hide(Player player) {
-        slotTag.remove(player.getUniqueId());
         BossBar bar = bars.remove(player.getUniqueId());
         if (bar != null) player.hideBossBar(bar);
     }
