@@ -16,7 +16,6 @@ import java.util.stream.Stream;
 public final class GunsPlugin extends JavaPlugin {
 
     private GunRegistry registry;
-    private WeaponHud weaponHud;
     private static GunRegistry REGISTRY;   // static handle for cross-plugin damage lookups
 
     /** The configured damage of the gun this item is, or -1 if it isn't a gun.
@@ -45,17 +44,13 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
-        weaponHud = new WeaponHud(registry);
-        // Hand a leaving player back the main scoreboard so no one is stranded on a weapon board.
-        getServer().getPluginManager().registerEvents(new org.bukkit.event.Listener() {
-            @org.bukkit.event.EventHandler
-            public void onQuit(org.bukkit.event.player.PlayerQuitEvent e) { weaponHud.remove(e.getPlayer()); }
-        }, this);
+        // Weapon selector: a transient ACTION BAR strip shown when you switch to a gun (press 1/2/... to
+        // equip the gun in that hotbar slot). No scroll hijack, no sidebar (the radio plugin owns that),
+        // non-bold so it can't bleed into other HUD lines. The hotbar itself stays 100% vanilla.
+        getServer().getPluginManager().registerEvents(new GunSelector(registry), this);
 
         // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks keeps it
-        // correct across item switches/pickups; shots and reloads update it instantly. The weapon
-        // SELECTOR is a separate right-edge sidebar (WeaponHud) refreshed on the same poll - the
-        // hotbar itself stays 100% vanilla, so you can freely scroll to any item, gun or not.
+        // correct across item switches/pickups; shots and reloads update it instantly.
         getServer().getScheduler().runTaskTimer(this, () -> {
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
@@ -66,17 +61,11 @@ public final class GunsPlugin extends JavaPlugin {
                 } else {
                     ammoBar.hide(player);
                 }
-                weaponHud.refresh(player);
             }
         }, 20L, 5L);
 
         getLogger().info("Guns enabled - guns: " + registry.ids() + ", grenades: " + registry.grenadeIds()
             + ", mags: " + registry.magIds());
-    }
-
-    @Override
-    public void onDisable() {
-        if (weaponHud != null) weaponHud.shutdown();
     }
 
     @Override
