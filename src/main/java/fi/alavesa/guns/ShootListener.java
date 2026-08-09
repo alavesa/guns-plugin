@@ -85,6 +85,8 @@ public final class ShootListener implements Listener {
     private static final String AIM_SUFFIX = "_aim";
     /** The custom_model_data suffix for the empty-magazine (reloading) model state. */
     private static final String EMPTY_SUFFIX = "_emptymag";
+    /** The custom_model_data suffix for the sprinting (lowered/running) first-person model state. */
+    private static final String RUN_SUFFIX = "_run";
 
     /** Scoreboard tag on every bullet-hole decal, so leftovers can be swept on enable. */
     public static final String TAG_BULLET_HOLE = "guns.bullethole";
@@ -195,6 +197,43 @@ public final class ShootListener implements Listener {
         if (registry.gunOf(held) == null) return;
         if (registry.ammoOf(held) <= 0) return;   // empty gun keeps its _emptymag model
         if (applyModelSuffix(held, aim)) player.getInventory().setItemInMainHand(held);
+    }
+
+    /** First-person RUNNING state: while the player sprints with a loaded, non-aimed gun, the held
+     *  model gets the "_run" variant (author it as a lowered/bobbing flipbook); it clears when they
+     *  stop. Aiming, reloading/empty and recoil own the model and are left untouched. Polled from the
+     *  ammo loop. Aiming here is the crouch pose, so run and aim never collide. */
+    public void updateRunModel(Player player) {
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (registry.gunOf(held) == null) return;
+        boolean run = player.isSprinting()
+            && registry.ammoOf(held) > 0
+            && !aiming.contains(player.getUniqueId())
+            && !reloading.contains(player.getUniqueId());
+        if (applyRunSuffix(held, run)) player.getInventory().setItemInMainHand(held);
+    }
+
+    /** Toggle the "_run" suffix, but ONLY on the plain/normal model - never on _aim/_emptymag/_recoil,
+     *  which own the model while they're active. Returns true if the item changed. */
+    private boolean applyRunSuffix(ItemStack item, boolean run) {
+        var meta = item.getItemMeta();
+        if (meta == null) return false;
+        var cmd = meta.getCustomModelDataComponent();
+        java.util.List<String> strings = cmd.getStrings();
+        if (strings.isEmpty()) return false;
+        String model = strings.get(0);
+        boolean hasRun = model.endsWith(RUN_SUFFIX);
+        if (!hasRun && (model.endsWith(AIM_SUFFIX) || model.endsWith(EMPTY_SUFFIX) || model.endsWith("_recoil")))
+            return false;   // another state owns the model right now
+        String bareModel = hasRun ? model.substring(0, model.length() - RUN_SUFFIX.length()) : model;
+        String want = run ? bareModel + RUN_SUFFIX : bareModel;
+        if (want.equals(model)) return false;
+        java.util.List<String> updated = new java.util.ArrayList<>(strings);   // keep attachment overlays
+        updated.set(0, want);
+        cmd.setStrings(updated);
+        meta.setCustomModelDataComponent(cmd);
+        item.setItemMeta(meta);
+        return true;
     }
 
     /** Rewrites the item's custom_model_data string to the aimed/normal variant.
