@@ -58,7 +58,6 @@ public final class GunsPlugin extends JavaPlugin {
                 if (gun != null) {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
-                    shootListener.updateRunModel(player);   // first-person running animation state
                 } else {
                     ammoBar.hide(player);
                 }
