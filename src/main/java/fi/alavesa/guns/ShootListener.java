@@ -59,6 +59,8 @@ public final class ShootListener implements Listener {
     private final AmmoBar ammoBar;
     private final Map<UUID, Long> nextShotAt = new ConcurrentHashMap<>();
     private final Set<UUID> reloading = ConcurrentHashMap.newKeySet();
+    /** In-flight first-person animation frame tasks per player, so a new clip cancels the old. */
+    private final Map<UUID, java.util.List<org.bukkit.scheduler.BukkitTask>> animTasks = new ConcurrentHashMap<>();
 
     public ShootListener(GunsPlugin plugin, GunRegistry registry, AmmoBar ammoBar) {
         this.plugin = plugin;
@@ -195,6 +197,81 @@ public final class ShootListener implements Listener {
         if (registry.gunOf(held) == null) return;
         if (registry.ammoOf(held) <= 0) return;   // empty gun keeps its _emptymag model
         if (applyModelSuffix(held, aim)) player.getInventory().setItemInMainHand(held);
+    }
+
+    // ---------------------------------------------------------------- first-person animation clips
+
+    /**
+     * EQUIP animation: when you draw a gun, play a first-person clip by swapping the held item's model
+     * through frames the pack supplies - "&lt;model&gt;_equip1" .. "_equipN" - then settle to the resting
+     * model. Author each frame in the item's firstperson_righthand display (arm baked in), exactly like
+     * the reference weapon-draw animations. Attachment overlays ride along on every frame.
+     *
+     * OFF by default: set equip-anim.frames (and equip-anim.frame-ticks) in config.yml once the frame
+     * models exist. Reload/inspect clips use the same mechanism and can be wired the same way.
+     */
+    @EventHandler
+    public void onDrawAnim(org.bukkit.event.player.PlayerItemHeldEvent event) {
+        int frames = plugin.getConfig().getInt("equip-anim.frames", 0);
+        if (frames <= 0) return;   // no equip clip authored/enabled
+        int frameTicks = Math.max(1, plugin.getConfig().getInt("equip-anim.frame-ticks", 2));
+        Player player = event.getPlayer();
+        int slot = event.getNewSlot();
+        // run next tick so this doesn't race the aim-on-draw handler
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            ItemStack held = player.getInventory().getItem(slot);
+            Gun gun = registry.gunOf(held);
+            if (gun == null || isAiming(player) || registry.ammoOf(held) <= 0) return;  // aim/empty own the model
+            playModelClip(player, gun, slot, "_equip", frames, frameTicks);
+        });
+    }
+
+    /** Swap the held gun's base model through &lt;model&gt;&lt;suffix&gt;1..N at frameTicks apart, then
+     *  restore the resting model. Aborts cleanly if the gun/slot changes or the player starts aiming. */
+    private void playModelClip(Player player, Gun gun, int slot, String suffix, int frames, int frameTicks) {
+        cancelAnim(player);
+        String base = gun.model();
+        java.util.List<org.bukkit.scheduler.BukkitTask> tasks = new java.util.ArrayList<>();
+        for (int i = 0; i < frames; i++) {
+            final int frame = i + 1;
+            tasks.add(plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                ItemStack cur = player.getInventory().getItem(slot);
+                Gun g = registry.gunOf(cur);
+                if (g == null || !g.id().equals(gun.id()) || player.getInventory().getHeldItemSlot() != slot
+                    || isAiming(player)) { cancelAnim(player); return; }
+                setBaseModel(cur, base + suffix + frame);   // attachments ride along
+                player.getInventory().setItem(slot, cur);
+            }, (long) i * frameTicks));
+        }
+        tasks.add(plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            animTasks.remove(player.getUniqueId());
+            ItemStack cur = player.getInventory().getItem(slot);
+            Gun g = registry.gunOf(cur);
+            if (g == null || !g.id().equals(gun.id())) return;
+            if (isAiming(player)) applyModelSuffix(cur, true);
+            else if (registry.ammoOf(cur) <= 0) setBaseModel(cur, base + EMPTY_SUFFIX);
+            else setBaseModel(cur, base);
+            player.getInventory().setItem(slot, cur);
+        }, (long) frames * frameTicks));
+        animTasks.put(player.getUniqueId(), tasks);
+    }
+
+    private void cancelAnim(Player player) {
+        var t = animTasks.remove(player.getUniqueId());
+        if (t != null) t.forEach(org.bukkit.scheduler.BukkitTask::cancel);
+    }
+
+    /** Set the item's base custom_model_data string (index 0), keeping any attachment overlay strings. */
+    private void setBaseModel(ItemStack item, String base) {
+        var meta = item.getItemMeta();
+        if (meta == null) return;
+        var cmd = meta.getCustomModelDataComponent();
+        java.util.List<String> strings = new java.util.ArrayList<>(cmd.getStrings());
+        if (strings.isEmpty()) return;
+        strings.set(0, base);
+        cmd.setStrings(strings);
+        meta.setCustomModelDataComponent(cmd);
+        item.setItemMeta(meta);
     }
 
     /** Rewrites the item's custom_model_data string to the aimed/normal variant.
