@@ -212,6 +212,7 @@ public final class ShootListener implements Listener {
      */
     @EventHandler
     public void onDrawAnim(org.bukkit.event.player.PlayerItemHeldEvent event) {
+        if (!modelStates()) return;   // model-state swaps disabled
         int frames = plugin.getConfig().getInt("equip-anim.frames", 0);
         if (frames <= 0) return;   // no equip clip authored/enabled
         int frameTicks = Math.max(1, plugin.getConfig().getInt("equip-anim.frame-ticks", 2));
@@ -277,6 +278,7 @@ public final class ShootListener implements Listener {
     /** Rewrites the item's custom_model_data string to the aimed/normal variant.
      *  Returns true if the item changed (caller must write it back). */
     private boolean applyModelSuffix(ItemStack item, boolean aim) {
+        if (!modelStates()) return false;   // states off -> gun keeps its base model (no aim swap)
         var meta = item.getItemMeta();
         if (meta == null) return false;
         var cmd = meta.getCustomModelDataComponent();
@@ -420,6 +422,7 @@ public final class ShootListener implements Listener {
 
     /** Set the held gun's model to its empty-magazine variant (shown while reloading). */
     private void showEmptyModel(Player player, ItemStack item, Gun gun) {
+        if (!modelStates()) return;
         setModelStrings(item, registry.modelStrings(item, gun.model() + EMPTY_SUFFIX));
         player.getInventory().setItemInMainHand(item);
     }
@@ -427,8 +430,29 @@ public final class ShootListener implements Listener {
     /** Restore the held gun's model to normal (or ironsights if the player is aiming). Attachment
      *  overlay strings ride along (index 0 is the base state; attachments follow, added not swapped). */
     private void showNormalModel(Player player, ItemStack item, Gun gun) {
+        if (!modelStates()) return;
         setModelStrings(item, registry.modelStrings(item, gun.model() + (aiming.contains(player.getUniqueId()) ? AIM_SUFFIX : "")));
         player.getInventory().setItemInMainHand(item);
+    }
+
+    /**
+     * Master switch for the first-person model STATE swaps (aim / empty / recoil / equip). Default OFF:
+     * with it off, a gun always shows its BASE model, so a missing state variant can never fall back to
+     * the vanilla crossbow and crouch/aim can't leave a wrong model on the gun (the "models broke" bug).
+     * Turn it back on (gun-model-states: true in config.yml) once every state model exists in the pack.
+     */
+    private boolean modelStates() { return plugin.getConfig().getBoolean("gun-model-states", false); }
+
+    /** While states are OFF, actively reset a held gun that's stuck on a state model back to its base. */
+    public void normalizeHeldModel(Player player) {
+        if (modelStates()) return;
+        ItemStack held = player.getInventory().getItemInMainHand();
+        Gun gun = registry.gunOf(held);
+        if (gun == null || !held.hasItemMeta()) return;
+        var strings = held.getItemMeta().getCustomModelDataComponent().getStrings();
+        if (strings.isEmpty() || strings.get(0).equals(gun.model())) return;
+        setBaseModel(held, gun.model());
+        player.getInventory().setItemInMainHand(held);
     }
 
     private void setModelStrings(ItemStack item, java.util.List<String> strings) {
@@ -821,6 +845,7 @@ public final class ShootListener implements Listener {
      *  visual equipment packet (no re-equip bob), then restore. The pack supplies gun_&lt;model&gt;_recoil
      *  (the model kicked back in firstperson). Hip-fire only - aiming keeps its ironsights pose. */
     private void playRecoilFrame(Player player, ItemStack held) {
+        if (!modelStates()) return;   // model-state swaps disabled
         if (isAiming(player) || held == null || !held.hasItemMeta()) return;
         var meta = held.getItemMeta();
         var strings = new java.util.ArrayList<>(meta.getCustomModelDataComponent().getStrings());

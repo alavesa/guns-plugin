@@ -44,20 +44,22 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
-        // Weapon selector: a transient ACTION BAR strip shown when you switch to a gun (press 1/2/... to
-        // equip the gun in that hotbar slot). No scroll hijack, no sidebar (the radio plugin owns that),
-        // non-bold so it can't bleed into other HUD lines. The hotbar itself stays 100% vanilla.
-        getServer().getPluginManager().registerEvents(new GunSelector(registry), this);
+        // Weapon selector: a PERSISTENT boss bar listing the guns you carry (up to 4), the held one
+        // highlighted. It stays up the whole time you carry a gun and only hides with no guns, so it
+        // never flickers away. Press a slot's number (1..9) to equip - the hotbar stays 100% vanilla.
+        WeaponBar weaponBar = new WeaponBar(registry);
 
         // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks keeps it
         // correct across item switches/pickups; shots and reloads update it instantly.
         getServer().getScheduler().runTaskTimer(this, () -> {
             for (var player : getServer().getOnlinePlayers()) {
+                weaponBar.update(player);   // persistent selector - shows whenever you carry a gun
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
                 if (gun != null) {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
+                    shootListener.normalizeHeldModel(player);   // keep the base model unless states are enabled
                 } else {
                     ammoBar.hide(player);
                 }
