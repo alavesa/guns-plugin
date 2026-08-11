@@ -57,6 +57,7 @@ public final class ShootListener implements Listener {
     private final GunsPlugin plugin;
     private final GunRegistry registry;
     private final AmmoBar ammoBar;
+    private final FpShader fpShader;
     private final Map<UUID, Long> nextShotAt = new ConcurrentHashMap<>();
     private final Set<UUID> reloading = ConcurrentHashMap.newKeySet();
     /** In-flight first-person animation frame tasks per player, so a new clip cancels the old. */
@@ -74,6 +75,7 @@ public final class ShootListener implements Listener {
         this.gunAttackerAtKey = new NamespacedKey(plugin, "gun_attacker_at");
         this.registry = registry;
         this.ammoBar = ammoBar;
+        this.fpShader = new FpShader(plugin, registry);
     }
 
     /** Aim-down-sights per player: QualityArmory-style - you aim by SNEAKING
@@ -839,6 +841,7 @@ public final class ShootListener implements Listener {
         ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
         applyRecoil(player, gun, item);
         playRecoilFrame(player, item);
+        fpShader.onFire(player);   // core-shader recoil phase (off unless fp-shader.enabled)
     }
 
     /** First-person recoil KICK: swap the held gun's model to its "_recoil" frame for ~2 ticks via a
