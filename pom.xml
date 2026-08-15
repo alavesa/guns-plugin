@@ -6,7 +6,7 @@
 
   <groupId>fi.alavesa</groupId>
   <artifactId>guns-plugin</artifactId>
-  <version>0.47.0</version>
+  <version>0.48.0</version>
   <packaging>jar</packaging>
 
   <name>Guns</name>
@@ -37,6 +37,13 @@
       <artifactId>paper-api</artifactId>
       <version>1.21.4-R0.1-SNAPSHOT</version>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.comphenix.protocol</groupId>
+      <artifactId>ProtocolLib</artifactId>
+      <version>5.4.0</version>
+      <scope>system</scope>
+      <systemPath>${project.basedir}/libs/ProtocolLib-5.4.0.jar</systemPath>
     </dependency>
   </dependencies>
 

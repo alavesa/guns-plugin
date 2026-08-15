@@ -44,9 +44,17 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
+        // Hide the gun swing from OTHER players at the packet level (finer than the Bukkit event) - only
+        // if ProtocolLib is installed. Soft dependency: the SwingHider class is only linked here.
+        if (getConfig().getBoolean("hide-swing-protocollib", true)
+            && getServer().getPluginManager().getPlugin("ProtocolLib") != null) {
+            SwingHider.register(this, registry);
+        }
+
         // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks keeps it
         // correct across item switches/pickups; shots and reloads update it instantly.
         getServer().getScheduler().runTaskTimer(this, () -> {
+            boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", false);
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
@@ -54,6 +62,8 @@ public final class GunsPlugin extends JavaPlugin {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
                     shootListener.normalizeHeldModel(player);   // keep the base model unless states are enabled
+                    if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(   // suppress mining visuals
+                        org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 40, 250, false, false, false));
                 } else {
                     ammoBar.hide(player);
                 }
