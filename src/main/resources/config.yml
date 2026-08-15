@@ -16,11 +16,13 @@ gun-mining-fatigue: true
 # harmless/ignored without it.
 hide-swing-protocollib: true
 
-# Optional generic.attack_speed modifier added to the base 4 while a gun is held (0 = off). This is NOT
-# what hides the swing (mining fatigue is). A very negative value (e.g. -3.99 -> ~0.01) makes the melee
-# cooldown never charge; a high value hides the sword cooldown indicator. Left off by default.
+# generic.attack_speed modifier ADDED to the base 4.0 while a gun is held (ADD_NUMBER operation).
+# The math matters: the player's base attack_speed is 4.0, so a modifier of 0 does NOTHING (stays 4.0).
+# To EMPTY the melee cooldown meter and force the arm down you must cancel the base out with a NEGATIVE
+# value: -4.0 zeroes it exactly, -100 freezes it hard. This is a helper for the arm/cooldown; the actual
+# swing-animation hider is gun-mining-fatigue above. Set to 0 to disable.
 gun:
-  attack-speed: 0.0
+  attack-speed: -100.0
 
 # Burst fire mode (when a gun's fire-modes include "burst").
 burst:

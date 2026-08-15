@@ -59,7 +59,7 @@ public final class GunsPlugin extends JavaPlugin {
         final org.bukkit.NamespacedKey atkKey = new org.bukkit.NamespacedKey(this, "gun_attack_speed");
         getServer().getScheduler().runTaskTimer(this, () -> {
             boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", true);   // stretches the swing to invisibility
-            double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // optional; NOT the swing mechanism
+            double atkSpeed = getConfig().getDouble("gun.attack-speed", -100.0);    // ADD to base 4; -4 zeroes it, -100 freezes hard
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
@@ -79,10 +79,18 @@ public final class GunsPlugin extends JavaPlugin {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
                     shootListener.normalizeHeldModel(player);   // keep the base model unless states are enabled
-                    if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(   // suppress mining/swing visuals
-                        org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 40, 250, false, false, false));
+                    // Amplifier 255 = StatesMC's value: breaks the client's block-mining prediction so a
+                    // left-click on a block can't force a full punch, AND stretches the swing duration to
+                    // invisibility. Hidden (no ambient/particles/icon), re-applied to stay effectively infinite.
+                    if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                        org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 40, 255, false, false, false));
                 } else {
                     ammoBar.hide(player);
+                    // Clear ONLY our own high-amplifier fatigue when the gun is holstered (don't touch a
+                    // legitimate weaker fatigue from elsewhere), so it doesn't linger after switching away.
+                    var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
+                    if (mf != null && mf.getAmplifier() == 255)
+                        player.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
                 }
             }
         }, 20L, 5L);
