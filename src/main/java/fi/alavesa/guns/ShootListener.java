@@ -590,7 +590,7 @@ public final class ShootListener implements Listener {
      *  isHandRaised() can no longer tell us the trigger is held for full-auto. Instead every
      *  right-click refreshes a timestamp; auto keeps firing while clicks keep arriving within this
      *  grace window and stops shortly after the trigger is released. */
-    private static final long AUTO_GRACE_MS = 300;
+    private static final long AUTO_GRACE_MS = 500;   // > the left-hold swing cadence, so auto sustains while held
     private final Map<UUID, Long> lastTrigger = new ConcurrentHashMap<>();
 
     /** Players currently auto-firing (one repeating task each). */
@@ -790,12 +790,13 @@ public final class ShootListener implements Listener {
         ItemStack held = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
-        event.setCancelled(true); // no visible melee swing with a gun
-        // LEFT-CLICK is the trigger now. The arm-swing packet repeats while left is held (fast, because
-        // guns carry a high attack speed - no melee cooldown), so shoot()'s fire-rate limiter gives auto
-        // for held / semi cadence for taps. Works aimed (spyglass scoped) or not.
+        event.setCancelled(true); // hides the melee swing from OTHER players (client's own swing is client-side)
+        // LEFT-CLICK is the trigger. The arm-swing packet repeats while left is held, refreshing
+        // lastTrigger; AUTO runs a fire-rate task (startAuto) that keeps going while the trigger is held
+        // and stops on release; SEMI fires one shot per swing (rate-limited by shoot()).
         lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
-        shoot(player, gun, held);
+        if ("auto".equals(registry.fireModeOf(held, gun))) startAuto(player, gun);
+        else shoot(player, gun, held);
     }
 
     /** The charged arrow exists only for the aiming pose - if anything
