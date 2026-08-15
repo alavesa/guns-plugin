@@ -583,7 +583,10 @@ public final class ShootListener implements Listener {
 
     /** The configured fire button: "left" (default, via the arm swing - no swing shown to others) or
      *  "right" (use-item - zero swing at all, the only truly clean vanilla option). */
-    private String fireButton() { return plugin.getConfig().getString("fire-button", "left").toLowerCase(); }
+    // Default RIGHT: right-click (use-item) is the ONLY way to fire with no arm swing at all. Left-click
+    // firing always shows the client's own swing (client-predicted, unremovable server-side). Set
+    // fire-button: left to fire on left-click if you accept the swing.
+    private String fireButton() { return plugin.getConfig().getString("fire-button", "right").toLowerCase(); }
 
     /** Fire according to the held gun's current mode: semi (one shot), auto (held), or burst (N rounds). */
     private void fireByMode(Player player, Gun gun, ItemStack item) {

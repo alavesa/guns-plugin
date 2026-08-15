@@ -927,13 +927,10 @@ public final class GunRegistry {
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, gun.id());
         meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
         meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
-        // NO-SWING via attack speed: while the gun is in hand, drop generic.attack_speed to ~0. The
-        // attribute syncs to the CLIENT, so the client's own attack cooldown never charges and it plays
-        // NO left-click swing animation (works client- AND server-side, no mod). Base attack_speed is 4;
-        // ADD_NUMBER -3.99 -> 0.01 -> ~100s cooldown = effectively never ready. Firing is on the
-        // left-click INTERACT, not the swing, so it still works. Config gun.attack-speed = the modifier
-        // amount (default -3.99); set 0 to disable.
-        double atkSpeed = plugin.getConfig().getDouble("gun.attack-speed", -3.99);
+        // Optional attack_speed modifier (config gun.attack-speed, default 0 = OFF). NOTE: tested and it
+        // does NOT remove the left-click swing (the swing is client-predicted, independent of attack
+        // charge). Kept only as a tunable knob (e.g. a high value hides the sword cooldown indicator).
+        double atkSpeed = plugin.getConfig().getDouble("gun.attack-speed", 0.0);
         if (atkSpeed != 0.0) {
             meta.addAttributeModifier(org.bukkit.attribute.Attribute.ATTACK_SPEED,
                 new org.bukkit.attribute.AttributeModifier(new org.bukkit.NamespacedKey(plugin, "gun_attack_speed"),
