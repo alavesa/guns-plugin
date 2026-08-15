@@ -1,22 +1,24 @@
 # ============================ FIRING & ANIMATIONS ============================
 # Which mouse button fires:
-#   right = fire on RIGHT-click (use-item). This is the ONLY way with NO arm swing shown to the
-#           shooter (left-click always plays the client's own swing - a hard Minecraft limit).
-#           Auto-fire works (use-item repeats). Left-click then toggles the fire mode.
-#   left  = fire on LEFT-click. The shooter WILL see their own arm swing (unavoidable server-side);
-#           other players don't (it's cancelled). Left-hold = semi/burst per click.
-fire-button: right
+#   left  = fire on LEFT-click. With gun-mining-fatigue ON (below) the swing is stretched so long it's
+#           invisible, so left-click looks swing-free. Auto needs a repeat signal (see below).
+#   right = fire on RIGHT-click (use-item): never any swing at all, and auto works (use-item repeats).
+fire-button: left
 
-# Hide the arm swing from OTHER players at the packet level. Only used if ProtocolLib is installed;
-# harmless/ignored without it (Paper already hides it via the swing event either way).
+# THE swing-hider. Applies a hidden high-amplifier Mining Fatigue while a gun is held. Minecraft ties
+# the arm-SWING DURATION to Mining Fatigue ( 6 + (1+amplifier)*2 ticks ), so a huge amplifier stretches
+# the punch over many seconds -> it becomes an imperceptible drift = effectively NO swing animation,
+# for the shooter AND everyone. This is the real, client-synced trick (not attack_speed). Also blocks
+# mining visuals. Turn OFF only if you want the vanilla swing back.
+gun-mining-fatigue: true
+
+# Hide the arm swing from OTHER players at the packet level too. Only used if ProtocolLib is installed;
+# harmless/ignored without it.
 hide-swing-protocollib: true
 
-# Hidden Mining Fatigue while holding a gun, to suppress mining/cracking visuals (block breaking is
-# already blocked for gun holders regardless).
-gun-mining-fatigue: false
-
-# Optional generic.attack_speed modifier added while a gun is held (0 = off). NOTE: this does NOT
-# remove the swing (tested). A high value only hides the sword attack-cooldown indicator.
+# Optional generic.attack_speed modifier added to the base 4 while a gun is held (0 = off). This is NOT
+# what hides the swing (mining fatigue is). A very negative value (e.g. -3.99 -> ~0.01) makes the melee
+# cooldown never charge; a high value hides the sword cooldown indicator. Left off by default.
 gun:
   attack-speed: 0.0
 

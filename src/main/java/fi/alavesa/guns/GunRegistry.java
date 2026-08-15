@@ -927,16 +927,8 @@ public final class GunRegistry {
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, gun.id());
         meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
         meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
-        // Optional attack_speed modifier (config gun.attack-speed, default 0 = OFF). NOTE: tested and it
-        // does NOT remove the left-click swing (the swing is client-predicted, independent of attack
-        // charge). Kept only as a tunable knob (e.g. a high value hides the sword cooldown indicator).
-        double atkSpeed = plugin.getConfig().getDouble("gun.attack-speed", 0.0);
-        if (atkSpeed != 0.0) {
-            meta.addAttributeModifier(org.bukkit.attribute.Attribute.ATTACK_SPEED,
-                new org.bukkit.attribute.AttributeModifier(new org.bukkit.NamespacedKey(plugin, "gun_attack_speed"),
-                    atkSpeed, org.bukkit.attribute.AttributeModifier.Operation.ADD_NUMBER,
-                    org.bukkit.inventory.EquipmentSlotGroup.MAINHAND));
-        }
+        // (attack_speed is applied DYNAMICALLY to the player while a gun is held - see GunsPlugin - so it
+        //  works on every gun immediately, no re-give needed.)
         item.setItemMeta(meta);
         return item;
     }

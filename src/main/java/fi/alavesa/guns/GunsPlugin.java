@@ -53,18 +53,33 @@ public final class GunsPlugin extends JavaPlugin {
             SwingHider.register(this, registry);
         }
 
-        // Ammo boss bar: shown while a gun is held, hidden otherwise. Polling every 5 ticks keeps it
-        // correct across item switches/pickups; shots and reloads update it instantly.
+        // Ammo boss bar + the swing-suppression effects, polled every 5 ticks. attack_speed is a
+        // DYNAMIC player attribute (added while a gun is held, removed otherwise) so it works on every
+        // gun instantly with no re-give; mining fatigue kills mining/swing visuals. Both toggle via config.
+        final org.bukkit.NamespacedKey atkKey = new org.bukkit.NamespacedKey(this, "gun_attack_speed");
         getServer().getScheduler().runTaskTimer(this, () -> {
-            boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", false);
+            boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", true);   // stretches the swing to invisibility
+            double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // optional; NOT the swing mechanism
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
-                if (gun != null) {
+                var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
+                boolean holdingGun = gun != null;
+                if (attr != null) {
+                    var existing = attr.getModifier(atkKey);
+                    if (holdingGun && atkSpeed != 0.0 && existing == null) {
+                        attr.addModifier(new org.bukkit.attribute.AttributeModifier(atkKey, atkSpeed,
+                            org.bukkit.attribute.AttributeModifier.Operation.ADD_NUMBER,
+                            org.bukkit.inventory.EquipmentSlotGroup.ANY));
+                    } else if ((!holdingGun || atkSpeed == 0.0) && existing != null) {
+                        attr.removeModifier(atkKey);
+                    }
+                }
+                if (holdingGun) {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
                     shootListener.normalizeHeldModel(player);   // keep the base model unless states are enabled
-                    if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(   // suppress mining visuals
+                    if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(   // suppress mining/swing visuals
                         org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 40, 250, false, false, false));
                 } else {
                     ammoBar.hide(player);
