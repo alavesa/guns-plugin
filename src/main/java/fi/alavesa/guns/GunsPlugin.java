@@ -38,6 +38,14 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
+        // Pin the melee attack cooldown at ~0 every tick while a gun is held (the 1.9-combat route to
+        // killing the left-click swing): an attack that is never "charged" plays no swing. Config
+        // pin-attack-cooldown (default true). Firing is unaffected (server-driven).
+        getServer().getScheduler().runTaskTimer(this, () -> {
+            if (!getConfig().getBoolean("pin-attack-cooldown", true)) return;
+            for (var player : getServer().getOnlinePlayers())
+                if (registry.gunOf(player.getInventory().getItemInMainHand()) != null) player.resetCooldown();
+        }, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
         getServer().getScheduler().runTask(this, shootListener::purgeAllSpeedResidue);       // clear old slow-modifier residue
