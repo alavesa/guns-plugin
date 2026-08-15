@@ -854,7 +854,6 @@ public final class ShootListener implements Listener {
 
         ammoBar.update(player, gun, ammo - 1, registry.fireModeOf(item, gun), reserveRounds(player, gun));
         applyRecoil(player, gun, item);
-        dipHand(player);           // cancel the player's OWN first-person left-click swing (client-side)
         playRecoilFrame(player, item);
         fpShader.onFire(player);   // core-shader recoil phase (off unless fp-shader.enabled)
         RigBridge.trigger(player, "fire");   // third-person rig 'fire' clip (if a BetterModel rig is on)
