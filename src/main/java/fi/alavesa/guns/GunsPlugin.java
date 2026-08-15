@@ -392,6 +392,38 @@ public final class GunsPlugin extends JavaPlugin {
                     player.playSound(player.getLocation(), "minecraft:block.lever.click", 0.7f, 1.4f);
                     return true;
                 }
+                case "swingdebug", "swing" -> {
+                    if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
+                    var held = player.getInventory().getItemInMainHand();
+                    Gun gun = registry.gunOf(held);
+                    var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
+                    var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
+                    sender.sendMessage(Component.text("=== SWING DEBUG ===", NamedTextColor.GOLD));
+                    sender.sendMessage(Component.text("Plugin version: " + getDescription().getVersion(), NamedTextColor.GRAY));
+                    sender.sendMessage(Component.text("Game mode: " + player.getGameMode()
+                        + (player.getGameMode() == org.bukkit.GameMode.CREATIVE
+                            ? "  <- Creative IGNORES mining fatigue for block-breaking; the swing WILL show. Test in Survival."
+                            : ""),
+                        player.getGameMode() == org.bukkit.GameMode.CREATIVE ? NamedTextColor.RED : NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("Holding a recognised gun: " + (gun != null)
+                        + (gun == null ? "  <- the effects only apply while a GUN is in your main hand" : ""),
+                        gun != null ? NamedTextColor.GREEN : NamedTextColor.RED));
+                    sender.sendMessage(Component.text("config fire-button = "
+                        + getConfig().getString("fire-button", "left"), NamedTextColor.AQUA));
+                    sender.sendMessage(Component.text("config gun-mining-fatigue = "
+                        + getConfig().getBoolean("gun-mining-fatigue", true), NamedTextColor.AQUA));
+                    sender.sendMessage(Component.text("config gun.attack-speed = "
+                        + getConfig().getDouble("gun.attack-speed", -100.0), NamedTextColor.AQUA));
+                    sender.sendMessage(Component.text("LIVE attack_speed total = "
+                        + (attr != null ? attr.getValue() : "n/a")
+                        + " (base " + (attr != null ? attr.getBaseValue() : "?") + "; want ~0)",
+                        attr != null && attr.getValue() <= 0.05 ? NamedTextColor.GREEN : NamedTextColor.RED));
+                    sender.sendMessage(Component.text("LIVE mining fatigue = "
+                        + (mf != null ? ("amp " + mf.getAmplifier()) : "NONE")
+                        + " (want amp 255)",
+                        mf != null && mf.getAmplifier() == 255 ? NamedTextColor.GREEN : NamedTextColor.RED));
+                    return true;
+                }
                 default -> { return usage(sender); }
             }
         } catch (IOException e) {
@@ -404,7 +436,7 @@ public final class GunsPlugin extends JavaPlugin {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
             case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode", "armor",
-                "attachments", "giveattachment", "attach", "detach"), args[0]);
+                "attachments", "giveattachment", "attach", "detach", "swingdebug"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("giveattachment") || args[0].equalsIgnoreCase("attach")
                     || args[0].equalsIgnoreCase("detach")) {
