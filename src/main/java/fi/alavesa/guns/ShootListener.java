@@ -214,10 +214,10 @@ public final class ShootListener implements Listener {
      */
     @EventHandler
     public void onDrawAnim(org.bukkit.event.player.PlayerItemHeldEvent event) {
-        if (!modelStates()) return;   // model-state swaps disabled
-        int frames = plugin.getConfig().getInt("equip-anim.frames", 0);
+        if (!fpAnim()) return;   // first-person item animations off (needs .bbmodel frames)
+        int frames = plugin.getConfig().getInt("fp-anim.equip.frames", 0);
         if (frames <= 0) return;   // no equip clip authored/enabled
-        int frameTicks = Math.max(1, plugin.getConfig().getInt("equip-anim.frame-ticks", 2));
+        int frameTicks = Math.max(1, plugin.getConfig().getInt("fp-anim.equip.frame-ticks", 2));
         Player player = event.getPlayer();
         int slot = event.getNewSlot();
         // run next tick so this doesn't race the aim-on-draw handler
@@ -227,6 +227,23 @@ public final class ShootListener implements Listener {
             if (gun == null || isAiming(player) || registry.ammoOf(held) <= 0) return;  // aim/empty own the model
             playModelClip(player, gun, slot, "_equip", frames, frameTicks);
         });
+    }
+
+    /** First-person item ANIMATIONS (equip/reload) are a separate system from the aim/empty state models:
+     *  the plugin flips the held gun's model through &lt;model&gt;_&lt;clip&gt;1..N frames you author in a
+     *  .bbmodel (arm baked into the firstperson_righthand display, NOT the gui icon). Off until
+     *  fp-anim.enabled + the frames exist. The item never leaves the inventory - this is exactly the
+     *  CounterMine / Colorful Calibers style first-person setup. */
+    private boolean fpAnim() { return plugin.getConfig().getBoolean("fp-anim.enabled", false); }
+
+    /** Play a first-person clip (e.g. "_reload") on the currently held gun from its config'd frame count. */
+    private void playFirstPersonClip(Player player, Gun gun, String suffix) {
+        if (!fpAnim()) return;
+        String clip = suffix.startsWith("_") ? suffix.substring(1) : suffix;
+        int frames = plugin.getConfig().getInt("fp-anim." + clip + ".frames", 0);
+        if (frames <= 0) return;
+        int ticks = Math.max(1, plugin.getConfig().getInt("fp-anim." + clip + ".frame-ticks", 2));
+        playModelClip(player, gun, player.getInventory().getHeldItemSlot(), suffix, frames, ticks);
     }
 
     /** Swap the held gun's base model through &lt;model&gt;&lt;suffix&gt;1..N at frameTicks apart, then
@@ -691,6 +708,8 @@ public final class ShootListener implements Listener {
             if (held == null || !held.id().equals(gun.id())) return;
             registry.setAmmo(now, load);
             showNormalModel(player, now, held);
+            RigBridge.trigger(player, "reload");                 // third-person rig 'reload' clip
+            playFirstPersonClip(player, held, "_reload");        // first-person item reload frames (fp-anim)
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
             ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
         });
@@ -842,6 +861,7 @@ public final class ShootListener implements Listener {
         applyRecoil(player, gun, item);
         playRecoilFrame(player, item);
         fpShader.onFire(player);   // core-shader recoil phase (off unless fp-shader.enabled)
+        RigBridge.trigger(player, "fire");   // third-person rig 'fire' clip (if a BetterModel rig is on)
     }
 
     /** First-person recoil KICK: swap the held gun's model to its "_recoil" frame for ~2 ticks via a
