@@ -1,3 +1,39 @@
+# ============================ FIRING & ANIMATIONS ============================
+# Which mouse button fires:
+#   right = fire on RIGHT-click (use-item). This is the ONLY way with NO arm swing shown to the
+#           shooter (left-click always plays the client's own swing - a hard Minecraft limit).
+#           Auto-fire works (use-item repeats). Left-click then toggles the fire mode.
+#   left  = fire on LEFT-click. The shooter WILL see their own arm swing (unavoidable server-side);
+#           other players don't (it's cancelled). Left-hold = semi/burst per click.
+fire-button: right
+
+# Hide the arm swing from OTHER players at the packet level. Only used if ProtocolLib is installed;
+# harmless/ignored without it (Paper already hides it via the swing event either way).
+hide-swing-protocollib: true
+
+# Hidden Mining Fatigue while holding a gun, to suppress mining/cracking visuals (block breaking is
+# already blocked for gun holders regardless).
+gun-mining-fatigue: false
+
+# Optional generic.attack_speed modifier added while a gun is held (0 = off). NOTE: this does NOT
+# remove the swing (tested). A high value only hides the sword attack-cooldown indicator.
+gun:
+  attack-speed: 0.0
+
+# Burst fire mode (when a gun's fire-modes include "burst").
+burst:
+  count: 3          # rounds per burst
+  delay-ticks: 2    # ticks between rounds
+
+# FIRST-PERSON item animations (arm baked into the model's firstperson_righthand display). The plugin
+# flips the held model through <gunmodel>_<clip>0..N frames you author in the resource pack. OFF until
+# you make the frames. This is what gives shooting/reload a first-person animation that is NOT a swing.
+fp-anim:
+  enabled: false
+  fire:   { frames: 4,  frame-ticks: 1 }
+  reload: { frames: 10, frame-ticks: 2 }
+  equip:  { frames: 6,  frame-ticks: 2 }
+
 # Performance tuning. Tracers are the heaviest cosmetic - raise the step / lower the cap
 # if the server or clients struggle.
 tracer-step: 2.0        # blocks between tracer particles (bigger = lighter)

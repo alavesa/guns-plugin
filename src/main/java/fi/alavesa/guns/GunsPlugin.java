@@ -30,6 +30,8 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
+        getConfig().options().copyDefaults(true);   // merge NEW keys (fire-button, fp-anim, ...) into an
+        saveConfig();                               // existing config.yml so they actually appear on disk
         registry = new GunRegistry(this);
         REGISTRY = registry;
         registry.load();
