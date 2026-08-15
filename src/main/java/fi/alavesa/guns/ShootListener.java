@@ -526,27 +526,20 @@ public final class ShootListener implements Listener {
         repairPose(item);
         if (gun.isSpyglass()) return; // right scopes (vanilla), left fires via onSwing
         Player player = event.getPlayer();
-        // crossbow gun: no vanilla behavior ever - right fires, LEFT switches the
-        // fire mode (semi <-> auto) with no command to type.
+        // Control scheme: LEFT-CLICK fires (via onSwing, no melee swing). RIGHT-CLICK reloads an empty
+        // gun (crossbow charge) and toggles the fire mode (semi <-> auto) on a loaded one.
         if (right) {
             if (registry.ammoOf(item) <= 0) {
-                // EMPTY: the reload. Do NOT cancel - the uncharged crossbow plays
-                // its own charging animation while right-click is held (the same
-                // button you fire with). onCrossbowLoad finishes the reload when
-                // the pull completes. Show the empty-mag model + lend a round so
-                // the client actually animates.
+                // EMPTY: the reload. Do NOT cancel - the uncharged crossbow plays its own charging
+                // animation while right-click is held. onCrossbowLoad finishes the reload.
                 showEmptyModel(player, item, gun);
                 lendArrowFor(player);
                 return;
             }
             event.setCancelled(true);
-            lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
-            // AUTO: hold right-click to keep firing; SEMI: one shot per click.
-            if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(player, gun);
-            else shoot(player, gun, item);
+            toggleMode(player, gun, item);   // loaded gun: right-click switches fire mode
         } else if (left) {
-            event.setCancelled(true);
-            toggleMode(player, gun, item);
+            event.setCancelled(true);        // left = fire (handled by onSwing); block block-breaking/melee
         }
     }
 
@@ -797,10 +790,12 @@ public final class ShootListener implements Listener {
         ItemStack held = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
-        event.setCancelled(true); // no visible swing with a gun
-        // the arm-swing packet fires on left-click even WHILE scoping a
-        // spyglass, so this is the sniper's trigger - it works aimed or not
-        if (gun.isSpyglass()) shoot(player, gun, held);
+        event.setCancelled(true); // no visible melee swing with a gun
+        // LEFT-CLICK is the trigger now. The arm-swing packet repeats while left is held (fast, because
+        // guns carry a high attack speed - no melee cooldown), so shoot()'s fire-rate limiter gives auto
+        // for held / semi cadence for taps. Works aimed (spyglass scoped) or not.
+        lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
+        shoot(player, gun, held);
     }
 
     /** The charged arrow exists only for the aiming pose - if anything

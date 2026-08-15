@@ -927,6 +927,14 @@ public final class GunRegistry {
         meta.getPersistentDataContainer().set(idKey, PersistentDataType.STRING, gun.id());
         meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
         meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
+        // High attack speed so the melee cooldown is effectively zero: the sword/attack-cooldown
+        // indicator under the crosshair never appears, and left-click (the fire button) is always
+        // "ready" - the swing packets that trigger firing come at full rate. Guns do no melee damage
+        // anyway (ShootListener.onPointBlank cancels melee bonks for gun holders).
+        meta.addAttributeModifier(org.bukkit.attribute.Attribute.ATTACK_SPEED,
+            new org.bukkit.attribute.AttributeModifier(new org.bukkit.NamespacedKey(plugin, "gun_attack_speed"),
+                100.0, org.bukkit.attribute.AttributeModifier.Operation.ADD_NUMBER,
+                org.bukkit.inventory.EquipmentSlotGroup.MAINHAND));
         item.setItemMeta(meta);
         return item;
     }
