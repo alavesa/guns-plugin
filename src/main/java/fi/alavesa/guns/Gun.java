@@ -50,7 +50,7 @@ public record Gun(
         if (fireModes != null) {
             for (String m : fireModes.toLowerCase().split(",")) {
                 String t = m.trim();
-                if ((t.equals("semi") || t.equals("auto")) && !out.contains(t)) out.add(t);
+                if ((t.equals("semi") || t.equals("auto") || t.equals("burst")) && !out.contains(t)) out.add(t);
             }
         }
         return out.isEmpty() ? java.util.List.of("semi") : out;

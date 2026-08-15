@@ -526,20 +526,25 @@ public final class ShootListener implements Listener {
         repairPose(item);
         if (gun.isSpyglass()) return; // right scopes (vanilla), left fires via onSwing
         Player player = event.getPlayer();
-        // Control scheme: LEFT-CLICK fires (via onSwing, no melee swing). RIGHT-CLICK reloads an empty
-        // gun (crossbow charge) and toggles the fire mode (semi <-> auto) on a loaded one.
+        boolean rightFire = "right".equals(fireButton());
         if (right) {
-            if (registry.ammoOf(item) <= 0) {
-                // EMPTY: the reload. Do NOT cancel - the uncharged crossbow plays its own charging
-                // animation while right-click is held. onCrossbowLoad finishes the reload.
-                showEmptyModel(player, item, gun);
-                lendArrowFor(player);
-                return;
+            if (rightFire) {
+                // RIGHT-FIRE mode: right-click on an empty gun reloads; on a loaded gun it FIRES
+                // (right-click = use-item, so there is NO arm swing at all - the truly clean option).
+                if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }
+                event.setCancelled(true);
+                lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
+                fireByMode(player, gun, item);
+            } else {
+                // LEFT-FIRE mode: right reloads an empty gun (crossbow charge), toggles mode on a loaded one.
+                if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }
+                event.setCancelled(true);
+                toggleMode(player, gun, item);
             }
-            event.setCancelled(true);
-            toggleMode(player, gun, item);   // loaded gun: right-click switches fire mode
         } else if (left) {
-            event.setCancelled(true);        // left = fire (handled by onSwing); block block-breaking/melee
+            event.setCancelled(true);            // block block-breaking/melee with a gun in either mode
+            if (rightFire) toggleMode(player, gun, item);   // right-fire mode: left toggles the fire mode
+            // left-fire mode: firing is handled by onSwing
         }
     }
 
@@ -558,8 +563,53 @@ public final class ShootListener implements Listener {
         if (gun == null || gun.isSpyglass()) return;   // spyglass fires on left-click/swing
         event.setCancelled(true);
         lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
-        if ("auto".equals(registry.fireModeOf(item, gun))) startAuto(player, gun);
-        else shoot(player, gun, item);
+        fireByMode(player, gun, item);
+    }
+
+    /** Left-click with a gun must never mine a block (it's the trigger). Cancel the block damage START
+     *  (stops the cracking animation too) and the break itself, for any gun holder - fully server-side,
+     *  no Adventure mode needed. */
+    @EventHandler(ignoreCancelled = true)
+    public void onGunBlockDamage(org.bukkit.event.block.BlockDamageEvent event) {
+        if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null) event.setCancelled(true);
+    }
+    @EventHandler(ignoreCancelled = true)
+    public void onGunBlockBreak(org.bukkit.event.block.BlockBreakEvent event) {
+        if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null) event.setCancelled(true);
+    }
+
+    /** The configured fire button: "left" (default, via the arm swing - no swing shown to others) or
+     *  "right" (use-item - zero swing at all, the only truly clean vanilla option). */
+    private String fireButton() { return plugin.getConfig().getString("fire-button", "left").toLowerCase(); }
+
+    /** Fire according to the held gun's current mode: semi (one shot), auto (held), or burst (N rounds). */
+    private void fireByMode(Player player, Gun gun, ItemStack item) {
+        if (reloading.contains(player.getUniqueId())) return;
+        switch (registry.fireModeOf(item, gun)) {
+            case "auto"  -> startAuto(player, gun);
+            case "burst" -> startBurst(player, gun);
+            default      -> shoot(player, gun, item);
+        }
+    }
+
+    private final Set<UUID> bursting = ConcurrentHashMap.newKeySet();
+    /** Burst: fire a fixed number of rounds at a set spacing, then stop (config burst.count / burst.delay-ticks). */
+    private void startBurst(Player player, Gun gun) {
+        UUID id = player.getUniqueId();
+        if (!bursting.add(id)) return;   // ignore re-trigger mid-burst
+        int count = Math.max(1, plugin.getConfig().getInt("burst.count", 3));
+        long delay = Math.max(1, plugin.getConfig().getInt("burst.delay-ticks", 2));
+        new BukkitRunnable() {
+            int n = 0;
+            @Override public void run() {
+                ItemStack held = player.getInventory().getItemInMainHand();
+                Gun g = registry.gunOf(held);
+                if (!player.isOnline() || g == null || !g.id().equals(gun.id())
+                    || registry.ammoOf(held) <= 0 || n >= count) { bursting.remove(id); cancel(); return; }
+                shoot(player, g, held);
+                n++;
+            }
+        }.runTaskTimer(plugin, 0L, delay);
     }
 
     /** Left-click cycles the held gun's fire mode (only if it offers more than
@@ -790,13 +840,14 @@ public final class ShootListener implements Listener {
         ItemStack held = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
-        event.setCancelled(true); // hides the melee swing from OTHER players (client's own swing is client-side)
-        // LEFT-CLICK is the trigger. The arm-swing packet repeats while left is held, refreshing
-        // lastTrigger; AUTO runs a fire-rate task (startAuto) that keeps going while the trigger is held
-        // and stops on release; SEMI fires one shot per swing (rate-limited by shoot()).
-        lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
-        if ("auto".equals(registry.fireModeOf(held, gun))) startAuto(player, gun);
-        else shoot(player, gun, held);
+        event.setCancelled(true); // hides the swing from OTHER players (the client's own swing is client-side)
+        // LEFT-FIRE mode: the swing IS the trigger. It repeats while left is held (refreshing lastTrigger),
+        // so auto runs a fire-rate task that stops on release, semi fires per swing, burst fires N rounds.
+        // In RIGHT-FIRE mode the swing only gets hidden here; firing is on right-click.
+        if (!"right".equals(fireButton())) {
+            lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
+            fireByMode(player, gun, held);
+        }
     }
 
     /** The charged arrow exists only for the aiming pose - if anything
