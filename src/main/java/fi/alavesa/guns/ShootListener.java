@@ -524,13 +524,13 @@ public final class ShootListener implements Listener {
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
         repairPose(item);
-        if (gun.isSpyglass()) return; // right scopes (vanilla), left fires via onSwing
         Player player = event.getPlayer();
         boolean rightFire = "right".equals(fireButton());
+        boolean spy = gun.isSpyglass();
         if (right) {
+            if (spy) return;                     // spyglass: right-click keeps the vanilla scope zoom
             if (rightFire) {
-                // RIGHT-FIRE mode: right-click on an empty gun reloads; on a loaded gun it FIRES
-                // (right-click = use-item, so there is NO arm swing at all - the truly clean option).
+                // RIGHT-FIRE mode: right-click on an empty gun reloads; on a loaded gun it FIRES.
                 if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }
                 event.setCancelled(true);
                 lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
@@ -542,9 +542,12 @@ public final class ShootListener implements Listener {
                 toggleMode(player, gun, item);
             }
         } else if (left) {
-            event.setCancelled(true);            // block block-breaking/melee with a gun in either mode
-            if (rightFire) toggleMode(player, gun, item);   // right-fire mode: left toggles the fire mode
-            // left-fire mode: firing is handled by onSwing
+            event.setCancelled(true);            // block block-breaking/melee with a gun
+            if (rightFire) { toggleMode(player, gun, item); return; }
+            // LEFT-FIRE mode: fire on the CLICK (not the swing). With attack_speed near 0 the client
+            // plays no swing animation, but the left-click interact still fires here.
+            lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
+            fireByMode(player, gun, item);
         }
     }
 
@@ -840,14 +843,8 @@ public final class ShootListener implements Listener {
         ItemStack held = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
-        event.setCancelled(true); // hides the swing from OTHER players (the client's own swing is client-side)
-        // LEFT-FIRE mode: the swing IS the trigger. It repeats while left is held (refreshing lastTrigger),
-        // so auto runs a fire-rate task that stops on release, semi fires per swing, burst fires N rounds.
-        // In RIGHT-FIRE mode the swing only gets hidden here; firing is on right-click.
-        if (!"right".equals(fireButton())) {
-            lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
-            fireByMode(player, gun, held);
-        }
+        event.setCancelled(true); // hide any residual swing from OTHER players. Firing is on the click
+        // (onShoot), not here - with attack_speed near 0 the client plays no swing to fire from anyway.
     }
 
     /** The charged arrow exists only for the aiming pose - if anything
