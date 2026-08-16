@@ -916,7 +916,7 @@ public final class GunRegistry {
             meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
             meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
             item.setItemMeta(meta);
-            return noSwing(item);
+            return item;
         }
         ItemStack item = new ItemStack(Material.CROSSBOW);
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
@@ -930,22 +930,7 @@ public final class GunRegistry {
         // (attack_speed is applied DYNAMICALLY to the player while a gun is held - see GunsPlugin - so it
         //  works on every gun immediately, no re-give needed.)
         item.setItemMeta(meta);
-        return noSwing(item);
-    }
-
-    /** Adds the vanilla swing_animation=none item component (MC 1.21.4+/26.x) so LEFT-CLICK shows NO arm
-     *  swing while a gun is held - client AND server, no mod, and ONLY on the gun. Applied via UnsafeValues
-     *  because the compile-time API (paper-api 1.21.4) predates the component's typed builder; the running
-     *  26.2 server parses the component string natively. If the server is too old to know the component, the
-     *  call throws and we return the gun unchanged (guns still work, just with the vanilla swing). */
-    private ItemStack noSwing(ItemStack item) {
-        try {
-            ItemStack modified = org.bukkit.Bukkit.getUnsafe().modifyItemStack(item,
-                item.getType().getKey() + "[minecraft:swing_animation={type:\"none\"}]");
-            return modified != null ? modified : item;
-        } catch (Throwable t) {
-            return item;
-        }
+        return item;
     }
 
     /** Grenade item: a snowball (throwable by vanilla; the throw is tagged by GrenadeListener). */

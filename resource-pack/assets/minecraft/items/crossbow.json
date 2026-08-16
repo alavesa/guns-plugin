@@ -9,13 +9,8 @@
           {
             "when": "gun_pistol",
             "model": {
-              "type": "minecraft:select",
-              "property": "minecraft:display_context",
-              "cases": [
-                { "when": "firstperson_righthand", "model": { "type": "minecraft:model", "model": "guns:item/gun_pistol_fp" } },
-                { "when": "firstperson_lefthand",  "model": { "type": "minecraft:model", "model": "guns:item/gun_pistol_fp" } }
-              ],
-              "fallback": { "type": "minecraft:model", "model": "guns:item/gun_pistol" }
+              "type": "minecraft:model",
+              "model": "guns:item/gun_pistol"
             }
           },
           {
