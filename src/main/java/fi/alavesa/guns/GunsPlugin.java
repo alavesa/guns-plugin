@@ -58,8 +58,8 @@ public final class GunsPlugin extends JavaPlugin {
         // gun instantly with no re-give; mining fatigue kills mining/swing visuals. Both toggle via config.
         final org.bukkit.NamespacedKey atkKey = new org.bukkit.NamespacedKey(this, "gun_attack_speed");
         getServer().getScheduler().runTaskTimer(this, () -> {
-            boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", true);   // stretches the swing to invisibility
-            double atkSpeed = getConfig().getDouble("gun.attack-speed", -100.0);    // ADD to base 4; -4 zeroes it, -100 freezes hard
+            boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", false);  // LEGACY; swing now removed by the item component
+            double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // LEGACY; NOT the swing mechanism
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
