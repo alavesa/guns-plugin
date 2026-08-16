@@ -1,31 +1,24 @@
 # ============================ FIRING & ANIMATIONS ============================
-# THE FULL "no swing" recipe (StatesMC-style) is THREE things working together - there are TWO different
-# swings and they need different fixes:
-#   1. ATTACK/miss swing (left-click air)  -> removed by the vanilla `minecraft:swing_animation={type:"none"}`
-#      item COMPONENT, baked onto every gun automatically (MC 1.21.4+/26.x). Always on.
-#   2. MINING swing (left-click a block)   -> removed by gun-mining-fatigue below (prevents the client's
-#      mining, so no mining swing when you aim at the ground/walls).
-#   3. attack_speed below -> the StatesMC touch: puts the sword cooldown indicator on screen and stops melee.
-# All three are ON by default. If the swing still shows, it's almost always #2 (you're aiming at a block).
+# The gun-hand swing is hidden with the OFF-HAND SWING trick: when you left-click a gun, the plugin cancels
+# the MAIN-hand (gun) swing and swings the empty OFF-hand instead, so the gun hand stays put. This is done
+# automatically in code - no config needed. (The old attribute/component tricks did not work on 26.2 and
+# were removed.)
 #
 # Which mouse button fires:
 #   left  = fire on LEFT-click.
 #   right = fire on RIGHT-click (use-item); auto-fire repeats while the button is held.
 fire-button: left
 
-# Removes the MINING swing: hidden high-amplifier Mining Fatigue while holding a gun, which stops the client
-# from starting to mine a block (so no mining arm-swing when you shoot toward the ground/walls). Side effect:
-# gun holders can't mine blocks (usually desirable). Part of the full no-swing recipe.
-gun-mining-fatigue: true
+# Optional: hidden Mining Fatigue while holding a gun (stops the gun holder from mining blocks). Default OFF.
+gun-mining-fatigue: false
 
 # Hide the arm swing from OTHER players at the packet level too. Only used if ProtocolLib is installed.
 hide-swing-protocollib: true
 
-# generic.attack_speed modifier added to the base 4.0 while a gun is held. -100 freezes the melee cooldown
-# (no melee) and shows the sword cooldown indicator on screen - the same tell StatesMC's guns have. Does NOT
-# remove the swing by itself (the component + mining-fatigue do). Set to 0 to disable.
+# Optional generic.attack_speed modifier while a gun is held. -100 shows the sword cooldown indicator (the
+# StatesMC tell) and stops melee. Does NOT remove the swing. Default 0 (off).
 gun:
-  attack-speed: -100.0
+  attack-speed: 0.0
 
 # Burst fire mode (when a gun's fire-modes include "burst").
 burst:

@@ -838,16 +838,20 @@ public final class ShootListener implements Listener {
         });
     }
 
-    /** Nobody else sees the punch either: gun-in-hand arm swings are
-     *  cancelled server-side (Paper's arm swing event). */
+    /** Hide the gun-hand (main-hand) swing: cancel the main-hand arm swing and REDIRECT it to the OFF-hand
+     *  instead. The gun hand then stays put; the empty off-hand does the (barely visible) swing. This is the
+     *  "swing the off hand" trick. Cancelling suppresses the main-hand swing broadcast to other players; the
+     *  off-hand swingOffHand() plays the harmless off-hand animation in its place. */
     @org.bukkit.event.EventHandler(ignoreCancelled = true)
     public void onSwing(io.papermc.paper.event.player.PlayerArmSwingEvent event) {
         Player player = event.getPlayer();
         ItemStack held = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(held);
         if (gun == null) return;
-        event.setCancelled(true); // hide any residual swing from OTHER players. Firing is on the click
-        // (onShoot), not here - with attack_speed near 0 the client plays no swing to fire from anyway.
+        if (event.getHand() == org.bukkit.inventory.EquipmentSlot.HAND) {
+            event.setCancelled(true);       // suppress the MAIN-hand (gun) swing...
+            player.swingOffHand();          // ...and swing the OFF-hand instead (hidden on the gun hand)
+        }
     }
 
     /** The charged arrow exists only for the aiming pose - if anything

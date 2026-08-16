@@ -916,7 +916,7 @@ public final class GunRegistry {
             meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
             meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
             item.setItemMeta(meta);
-            return noSwing(item);
+            return item;
         }
         ItemStack item = new ItemStack(Material.CROSSBOW);
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
@@ -930,23 +930,7 @@ public final class GunRegistry {
         // (attack_speed is applied DYNAMICALLY to the player while a gun is held - see GunsPlugin - so it
         //  works on every gun immediately, no re-give needed.)
         item.setItemMeta(meta);
-        return noSwing(item);
-    }
-
-    /** Bakes the vanilla `minecraft:swing_animation={type:"none"}` component onto the gun (MC 1.21.4+/26.x).
-     *  This removes the ATTACK/miss swing. NOTE: it does NOT remove the MINING swing (when you left-click a
-     *  block) - that needs mining prevention (Mining Fatigue / block-break cancel), applied in GunsPlugin.
-     *  Together they are the full StatesMC-style recipe. Applied via UnsafeValues because the compile API
-     *  (paper-api 1.21.4) predates the component; the 26.2 server parses it natively. Fails safe on older
-     *  servers (returns the gun unchanged). */
-    private ItemStack noSwing(ItemStack item) {
-        try {
-            ItemStack modified = org.bukkit.Bukkit.getUnsafe().modifyItemStack(item,
-                item.getType().getKey() + "[minecraft:swing_animation={type:\"none\"}]");
-            return modified != null ? modified : item;
-        } catch (Throwable t) {
-            return item;
-        }
+        return item;
     }
 
     /** Grenade item: a snowball (throwable by vanilla; the throw is tagged by GrenadeListener). */
