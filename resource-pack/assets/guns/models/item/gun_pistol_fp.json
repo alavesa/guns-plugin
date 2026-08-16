@@ -1,0 +1,68 @@
+{
+  "credit": "First-person pistol WITH a baked forearm/sleeve that covers the vanilla arm so the left-click swing is hidden behind the model. Shown ONLY in firstperson (see items/crossbow.json display_context select); the clean gun_pistol.json is still used for GUI/third-person. Replace the sleeve with your own skinned arm in Blockbench. Tune the firstperson_righthand transform live with F3+T.",
+  "textures": {
+    "0": "block/iron_block",
+    "1": "block/polished_blackstone",
+    "2": "block/stripped_oak_log",
+    "particle": "block/iron_block"
+  },
+  "elements": [
+    {
+      "name": "barrel",
+      "from": [7, 9, 3],
+      "to": [9, 11, 12],
+      "faces": {
+        "north": { "texture": "#0" }, "south": { "texture": "#0" },
+        "east": { "texture": "#0" }, "west": { "texture": "#0" },
+        "up": { "texture": "#0" }, "down": { "texture": "#0" }
+      }
+    },
+    {
+      "name": "body",
+      "from": [6.5, 7, 9],
+      "to": [9.5, 10.5, 14],
+      "faces": {
+        "north": { "texture": "#1" }, "south": { "texture": "#1" },
+        "east": { "texture": "#1" }, "west": { "texture": "#1" },
+        "up": { "texture": "#1" }, "down": { "texture": "#1" }
+      }
+    },
+    {
+      "name": "grip",
+      "from": [7, 2.5, 11],
+      "to": [9, 8, 14],
+      "rotation": { "origin": [8, 8, 12.5], "axis": "x", "angle": -22.5 },
+      "faces": {
+        "north": { "texture": "#1" }, "south": { "texture": "#1" },
+        "east": { "texture": "#1" }, "west": { "texture": "#1" },
+        "up": { "texture": "#1" }, "down": { "texture": "#1" }
+      }
+    },
+    {
+      "name": "hand",
+      "from": [6, 2, 10],
+      "to": [10, 8, 15],
+      "rotation": { "origin": [8, 8, 12.5], "axis": "x", "angle": -22.5 },
+      "faces": {
+        "north": { "texture": "#2" }, "south": { "texture": "#2" },
+        "east": { "texture": "#2" }, "west": { "texture": "#2" },
+        "up": { "texture": "#2" }, "down": { "texture": "#2" }
+      }
+    },
+    {
+      "name": "forearm",
+      "from": [5.5, -14, 12],
+      "to": [10.5, 3, 27],
+      "rotation": { "origin": [8, 3, 14], "axis": "x", "angle": 22.5 },
+      "faces": {
+        "north": { "texture": "#1" }, "south": { "texture": "#1" },
+        "east": { "texture": "#1" }, "west": { "texture": "#1" },
+        "up": { "texture": "#1" }, "down": { "texture": "#1" }
+      }
+    }
+  ],
+  "display": {
+    "firstperson_righthand": { "rotation": [5, 95, 0], "translation": [1, -1.5, 1], "scale": [0.9, 0.9, 0.9] },
+    "firstperson_lefthand": { "rotation": [5, -95, 0], "translation": [1, -1.5, 1], "scale": [0.9, 0.9, 0.9] }
+  }
+}
