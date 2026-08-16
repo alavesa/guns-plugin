@@ -916,7 +916,7 @@ public final class GunRegistry {
             meta.getPersistentDataContainer().set(ammoKey, PersistentDataType.INTEGER, gun.magazine());
             meta.getPersistentDataContainer().set(instanceKey, PersistentDataType.STRING, java.util.UUID.randomUUID().toString());
             item.setItemMeta(meta);
-            return item;
+            return noSwing(item);
         }
         ItemStack item = new ItemStack(Material.CROSSBOW);
         CrossbowMeta meta = (CrossbowMeta) item.getItemMeta();
@@ -930,7 +930,23 @@ public final class GunRegistry {
         // (attack_speed is applied DYNAMICALLY to the player while a gun is held - see GunsPlugin - so it
         //  works on every gun immediately, no re-give needed.)
         item.setItemMeta(meta);
-        return item;
+        return noSwing(item);
+    }
+
+    /** Bakes the vanilla `minecraft:swing_animation={type:"none"}` component onto the gun. On MC 1.21.11
+     *  through 26.3 Snapshot 6 this REMOVES the left-click arm swing entirely - the shooter's own first-person
+     *  view AND everyone else's - because it's client-honored item data (the one no-mod lever that beats
+     *  client prediction). On 26.3 Snapshot 7+ Mojang removed the "none" type (items migrate to "whack"), so
+     *  it silently has no effect there; on older builds the call throws and is ignored. Applied via
+     *  UnsafeValues because paper-api 1.21.4 (compile target) predates the component; the server parses it. */
+    private ItemStack noSwing(ItemStack item) {
+        try {
+            ItemStack modified = org.bukkit.Bukkit.getUnsafe().modifyItemStack(item,
+                item.getType().getKey() + "[minecraft:swing_animation={type:\"none\"}]");
+            return modified != null ? modified : item;
+        } catch (Throwable t) {
+            return item;
+        }
     }
 
     /** Grenade item: a snowball (throwable by vanilla; the throw is tagged by GrenadeListener). */
