@@ -757,7 +757,6 @@ public final class ShootListener implements Listener {
             if (held == null || !held.id().equals(gun.id())) return;
             registry.setAmmo(now, load);
             showNormalModel(player, now, held);
-            RigBridge.trigger(player, "reload");                 // third-person rig 'reload' clip
             playFirstPersonClip(player, held, "_reload");        // first-person item reload frames (fp-anim)
             player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
             ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
@@ -906,7 +905,20 @@ public final class ShootListener implements Listener {
         playFirstPersonClip(player, gun, "_fire");   // FIRST-PERSON shooting animation (recoil frames), NOT a swing
         playRecoilFrame(player, item);               // legacy 2-tick _recoil frame (modelStates); harmless if unused
         fpShader.onFire(player);   // core-shader recoil phase (off unless fp-shader.enabled)
-        RigBridge.trigger(player, "fire");   // third-person rig 'fire' clip (if a BetterModel rig is on)
+        if (plugin.getConfig().getBoolean("cancel-swing-on-shot", true)) cancelSwingSoon(player);
+    }
+
+    /** StatesMC behaviour: the swing is cancelled right after the shot, so at most a frame or two slips
+     *  through. A tick after firing, re-send the held item slot - the client resets the arm to its rest
+     *  pose (equip) instead of finishing the swing arc. Toggle with config cancel-swing-on-shot. */
+    private void cancelSwingSoon(Player player) {
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline()) return;
+            ItemStack held = player.getInventory().getItemInMainHand();
+            if (held == null || held.getType().isAir()) return;
+            if (registry.gunOf(held) == null) return;
+            player.getInventory().setItemInMainHand(held.clone());   // SetSlot -> client re-equips -> swing cut
+        }, 1L);
     }
 
     /** First-person recoil KICK: swap the held gun's model to its "_recoil" frame for ~2 ticks via a
