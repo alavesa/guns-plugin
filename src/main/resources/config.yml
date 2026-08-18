@@ -9,8 +9,10 @@
 #   right = fire on RIGHT-click (use-item); auto-fire repeats while the button is held.
 fire-button: left
 
-# Optional: hidden Mining Fatigue while holding a gun (stops the gun holder from mining blocks). Default OFF.
-gun-mining-fatigue: false
+# Removes the MINING swing (the arm-swing you get when you left-click while looking at a block/floor/wall):
+# a hidden high-amplifier Mining Fatigue stops the client from starting to mine, so no mining swing. Pairs
+# with the swing_animation component (which removes the ATTACK swing on air) for full coverage. Default ON.
+gun-mining-fatigue: true
 
 # Hide the arm swing from OTHER players at the packet level too. Only used if ProtocolLib is installed.
 hide-swing-protocollib: true
