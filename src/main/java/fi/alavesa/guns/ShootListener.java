@@ -1470,6 +1470,8 @@ public final class ShootListener implements Listener {
                 && plugin.getConfig().getBoolean("bypass-pvp", true)) {
             target.setNoDamageTicks(0);
             target.damage(damage);
+            // PvP-off path is source-less, so the damage-counter event never sees it - report it directly.
+            if (plugin.damageCounter() != null) plugin.damageCounter().record(shooter, damage);
         }
         target.setVelocity(preHit);
         target.getWorld().spawnParticle(Particle.CRIT, end, 8, 0.1, 0.1, 0.1, 0.05);

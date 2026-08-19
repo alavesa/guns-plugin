@@ -17,6 +17,8 @@ public final class GunsPlugin extends JavaPlugin {
 
     private GunRegistry registry;
     private static GunRegistry REGISTRY;   // static handle for cross-plugin damage lookups
+    private DamageCounter damageCounter;
+    public DamageCounter damageCounter() { return damageCounter; }
 
     /** The configured damage of the gun this item is, or -1 if it isn't a gun.
      *  Other plugins (Terminal's CCTV bodies) call this by reflection to charge
@@ -36,6 +38,9 @@ public final class GunsPlugin extends JavaPlugin {
         REGISTRY = registry;
         registry.load();
         AmmoBar ammoBar = new AmmoBar();
+        damageCounter = new DamageCounter(this);
+        getServer().getPluginManager().registerEvents(damageCounter, this);
+        getServer().getScheduler().runTaskTimer(this, damageCounter, 20L, 10L);   // fade the counter after 3s idle
         ShootListener shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
