@@ -51,11 +51,12 @@ public final class GunsPlugin extends JavaPlugin {
         getServer().getScheduler().runTaskTimer(this, shootListener::sweepAgedBulletHoles, 100L, 100L); // 15s safety net
         getServer().getPluginManager().registerEvents(new GrenadeListener(this, registry), this);
 
-        // Hide the gun swing from OTHER players at the packet level (finer than the Bukkit event) - only
-        // if ProtocolLib is installed. Soft dependency: the SwingHider class is only linked here.
+        // Suppress the gun arm-swing via ProtocolLib: cancel the inbound swing packet (no third-person
+        // animation) and resync the held slot (resets the shooter's first-person hand). Soft dependency -
+        // the GunSwingSuppressor class is only linked when ProtocolLib is installed.
         if (getConfig().getBoolean("hide-swing-protocollib", true)
             && getServer().getPluginManager().getPlugin("ProtocolLib") != null) {
-            SwingHider.register(this, registry);
+            GunSwingSuppressor.register(this, registry);
         }
 
         // Ammo boss bar + the swing-suppression effects, polled every 5 ticks. attack_speed is a

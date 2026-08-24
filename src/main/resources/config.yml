@@ -1,18 +1,14 @@
 # ============================ FIRING & ANIMATIONS ============================
-# The gun-hand swing is hidden with the OFF-HAND SWING trick: when you left-click a gun, the plugin cancels
-# the MAIN-hand (gun) swing and swings the empty OFF-hand instead, so the gun hand stays put. This is done
-# automatically in code - no config needed. (The old attribute/component tricks did not work on 26.2 and
-# were removed.)
+# Arm-swing suppression (needs ProtocolLib, toggle hide-swing-protocollib below): when you left-click a gun
+# the plugin CANCELS the inbound swing packet (so OTHER players never see the swing) and RESYNCS the held
+# slot (which resets the shooter's own first-person hand). Third-person is fully removed; first-person is
+# client-predicted so a frame or two may still slip through (a full first-person removal needs a client mod).
 #
 # Which mouse button fires:
 #   left  = fire on LEFT-click.
 #   right = fire on RIGHT-click (use-item); auto-fire repeats while the button is held.
 fire-button: left
 
-# StatesMC-style: cancel the arm swing right after each shot (re-equip the held item a tick later so the
-# client resets the arm to its rest pose instead of finishing the swing). A frame or two may still slip
-# through. Set false to disable.
-cancel-swing-on-shot: true
 
 # Removes the MINING swing (the arm-swing you get when you left-click while looking at a block/floor/wall):
 # a hidden high-amplifier Mining Fatigue stops the client from starting to mine, so no mining swing. Pairs
