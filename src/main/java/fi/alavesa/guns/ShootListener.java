@@ -905,8 +905,22 @@ public final class ShootListener implements Listener {
         playFirstPersonClip(player, gun, "_fire");   // FIRST-PERSON shooting animation (recoil frames), NOT a swing
         playRecoilFrame(player, item);               // legacy 2-tick _recoil frame (modelStates); harmless if unused
         fpShader.onFire(player);   // core-shader recoil phase (off unless fp-shader.enabled)
-        // (Arm-swing suppression + first-person resync is handled by GunSwingSuppressor via ProtocolLib,
-        //  on the inbound swing packet - see GunsPlugin.)
+        // FIRST-PERSON mitigation: a tick after firing, re-equip the held gun so the shooter's client resets
+        // its hand and cuts the predicted swing short (a frame or two may still slip through). This does NOT
+        // touch the inbound swing packet, so left-click firing keeps working. Third-person is hidden
+        // separately by GunSwingSuppressor (outbound packet) when ProtocolLib is present.
+        cancelSwingSoon(player);
+    }
+
+    /** Re-send the held gun a tick after firing so the client re-equips it and the first-person swing arc is
+     *  cut short. Uses only the Bukkit API (no ProtocolLib needed). */
+    private void cancelSwingSoon(Player player) {
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline()) return;
+            ItemStack held = player.getInventory().getItemInMainHand();
+            if (held == null || held.getType().isAir() || registry.gunOf(held) == null) return;
+            player.getInventory().setItemInMainHand(held.clone());   // SetSlot -> client re-equips -> swing cut
+        }, 1L);
     }
 
     /** First-person recoil KICK: swap the held gun's model to its "_recoil" frame for ~2 ticks via a
