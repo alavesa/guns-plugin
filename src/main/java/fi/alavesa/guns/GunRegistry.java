@@ -933,16 +933,16 @@ public final class GunRegistry {
         return noSwing(item);
     }
 
-    /** Bakes the vanilla `minecraft:swing_animation={type:"none"}` component onto the gun. On MC 1.21.11
-     *  through 26.3 Snapshot 6 this REMOVES the left-click arm swing entirely - the shooter's own first-person
-     *  view AND everyone else's - because it's client-honored item data (the one no-mod lever that beats
-     *  client prediction). On 26.3 Snapshot 7+ Mojang removed the "none" type (items migrate to "whack"), so
-     *  it silently has no effect there; on older builds the call throws and is ignored. Applied via
-     *  UnsafeValues because paper-api 1.21.4 (compile target) predates the component; the server parses it. */
+    /** Bakes a swing_animation component that STRETCHES the arm-swing to invisibility. type "none" did not
+     *  suppress the first-person swing on 26.2, so instead we give the swing a gigantic duration
+     *  (2,147,483,647 ticks): the client advances the swing arc by 1/duration per tick, so the arm barely
+     *  moves at all - effectively a steady weapon. Applied via UnsafeValues because paper-api 1.21.4 (compile
+     *  target) predates the component; the 26.2 server parses the string natively (type + this huge duration
+     *  were both verified accepted on real Paper 26.2). Fails safe (returns the gun) on older servers. */
     private ItemStack noSwing(ItemStack item) {
         try {
             ItemStack modified = org.bukkit.Bukkit.getUnsafe().modifyItemStack(item,
-                item.getType().getKey() + "[minecraft:swing_animation={type:\"none\"}]");
+                item.getType().getKey() + "[minecraft:swing_animation={type:\"whack\",duration:2147483647}]");
             return modified != null ? modified : item;
         } catch (Throwable t) {
             return item;
