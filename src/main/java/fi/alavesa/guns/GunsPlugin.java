@@ -381,6 +381,42 @@ public final class GunsPlugin extends JavaPlugin {
                         + " gun(s), " + registry.magIds().size() + " mag(s).", NamedTextColor.GOLD));
                     return true;
                 }
+                case "anim" -> {
+                    // /guns anim <gun> <fire|reload|equip> <frames> <frame-ticks>   (frames 0 = remove)
+                    if (!sender.hasPermission("guns.admin")) return error(sender, "No permission.");
+                    if (args.length < 3) {
+                        sender.sendMessage(Component.text("Custom first-person animations. Author frames "
+                            + "<model>_<clip>1..N in the pack, then:", NamedTextColor.GOLD));
+                        sender.sendMessage(Component.text("/guns anim <gun> <fire|reload|equip> <frames> [frame-ticks]"
+                            + "   (frames 0 = remove; needs fp-anim.enabled)", NamedTextColor.AQUA));
+                        for (String id : registry.ids()) {
+                            StringBuilder sb = new StringBuilder("  " + id + ": ");
+                            for (String c : new String[]{"fire", "reload", "equip"}) {
+                                int[] a = registry.gunAnim(id, c);
+                                if (a != null) sb.append(c).append("=").append(a[0]).append("f/").append(a[1]).append("t  ");
+                            }
+                            sender.sendMessage(Component.text(sb.toString(), NamedTextColor.GRAY));
+                        }
+                        return true;
+                    }
+                    Gun g = registry.get(args[1]);
+                    if (g == null) return error(sender, "No gun '" + args[1] + "'.");
+                    String clip = args[2].toLowerCase();
+                    if (!clip.equals("fire") && !clip.equals("reload") && !clip.equals("equip"))
+                        return error(sender, "Clip must be fire, reload or equip.");
+                    if (args.length < 4) return error(sender, "/guns anim " + args[1] + " " + clip + " <frames> [frame-ticks]");
+                    int frames, ticks;
+                    try { frames = Integer.parseInt(args[3]); ticks = args.length >= 5 ? Integer.parseInt(args[4]) : 2; }
+                    catch (NumberFormatException e) { return error(sender, "frames/frame-ticks must be numbers."); }
+                    registry.setGunAnim(g.id(), clip, frames, ticks);
+                    if (frames <= 0) { sender.sendMessage(Component.text(g.id() + " " + clip
+                        + " animation removed.", NamedTextColor.GOLD)); return true; }
+                    sender.sendMessage(Component.text(g.id() + " " + clip + " -> " + frames + " frame(s) @ " + ticks
+                        + " tick(s) each. Author " + g.model() + "_" + clip + "1.." + frames + " in the pack. "
+                        + (getConfig().getBoolean("fp-anim.enabled", true) ? "" : "(enable fp-anim.enabled!)"),
+                        NamedTextColor.GOLD));
+                    return true;
+                }
                 case "firemode", "mode" -> {
                     if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
                     org.bukkit.inventory.ItemStack held = player.getInventory().getItemInMainHand();
@@ -442,7 +478,7 @@ public final class GunsPlugin extends JavaPlugin {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
             case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode", "armor",
-                "attachments", "giveattachment", "attach", "detach", "swingdebug"), args[0]);
+                "attachments", "giveattachment", "attach", "detach", "swingdebug", "anim"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("giveattachment") || args[0].equalsIgnoreCase("attach")
                     || args[0].equalsIgnoreCase("detach")) {

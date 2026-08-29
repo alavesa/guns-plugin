@@ -75,6 +75,7 @@ public final class GunRegistry {
      *  stamped magazine on first read; not persisted across restart (guns come back full). */
     private final Map<String, Integer> liveAmmo = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<String, Gun> guns = new LinkedHashMap<>();
+    private final Map<String, java.util.Map<String, int[]>> gunAnims = new java.util.HashMap<>(); // gunId -> clip -> [frames, frameTicks]
     private final Map<String, Grenade> grenades = new LinkedHashMap<>();
     private final Map<String, Mag> mags = new LinkedHashMap<>();
     private File file;
@@ -506,6 +507,7 @@ public final class GunRegistry {
         yaml = YamlConfiguration.loadConfiguration(file);
         migrate();
         guns.clear();
+        gunAnims.clear();
         grenades.clear();
         mags.clear();
         loadAttachments();
@@ -528,6 +530,13 @@ public final class GunRegistry {
             for (String id : root.getKeys(false)) {
                 ConfigurationSection s = root.getConfigurationSection(id);
                 if (s == null) continue;
+                // Per-gun first-person animation: <gun>.anim.<clip>.{frames,frame-ticks} for fire/reload/equip.
+                for (String clip : new String[]{"fire", "reload", "equip"}) {
+                    if (s.getConfigurationSection("anim") == null || s.getConfigurationSection("anim." + clip) == null) continue;
+                    int f = Math.max(0, s.getInt("anim." + clip + ".frames", 0));
+                    int t = Math.max(1, s.getInt("anim." + clip + ".frame-ticks", 2));
+                    gunAnims.computeIfAbsent(id.toLowerCase(), k -> new java.util.HashMap<>()).put(clip, new int[]{f, t});
+                }
                 // "none"/missing mag = old loose-rounds reload; an unknown mag id would make
                 // the gun impossible to reload (the item can't exist), so warn and go loose.
                 String magRef = s.getString("mag", "none");
@@ -700,6 +709,23 @@ public final class GunRegistry {
     }
 
     public Gun get(String id) { return id == null ? null : guns.get(id.toLowerCase()); }
+
+    /** Per-gun first-person animation [frames, frameTicks] for a clip ("fire"/"reload"/"equip"), or null if
+     *  the gun defines its own none (the caller then falls back to the global fp-anim config). */
+    public int[] gunAnim(String gunId, String clip) {
+        var m = gunAnims.get(gunId == null ? "" : gunId.toLowerCase());
+        return m == null ? null : m.get(clip);
+    }
+
+    /** Set (and persist) a gun's per-clip animation, then reload guns.yml. frames &lt;= 0 removes it. */
+    public void setGunAnim(String gunId, String clip, int frames, int frameTicks) throws IOException {
+        YamlConfiguration yaml = YamlConfiguration.loadConfiguration(file);
+        String path = "guns." + gunId.toLowerCase() + ".anim." + clip;
+        if (frames <= 0) yaml.set(path, null);
+        else { yaml.set(path + ".frames", frames); yaml.set(path + ".frame-ticks", Math.max(1, frameTicks)); }
+        yaml.save(file);
+        load();
+    }
     public Grenade getGrenade(String id) { return id == null ? null : grenades.get(id.toLowerCase()); }
     public Mag getMag(String id) { return id == null ? null : mags.get(id.toLowerCase()); }
     public Set<String> ids() { return guns.keySet(); }

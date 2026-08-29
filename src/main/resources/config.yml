@@ -28,14 +28,17 @@ burst:
   count: 3          # rounds per burst
   delay-ticks: 2    # ticks between rounds
 
-# FIRST-PERSON item animations (arm baked into the model's firstperson_righthand display). The plugin
-# flips the held model through <gunmodel>_<clip>0..N frames you author in the resource pack. OFF until
-# you make the frames. This is what gives shooting/reload a first-person animation that is NOT a swing.
+# CUSTOM FIRST-PERSON gun animations (arm baked into the model's firstperson_righthand display). The plugin
+# flips the held model through <gunmodel>_<clip>1..N frames you author in the resource pack, on fire / reload
+# / equip - a real first-person animation that is NOT the arm swing. ON by default, but a gun only animates
+# once you author its frames and set a frame count. Two ways to set the count:
+#   PER GUN (recommended): /guns anim <gun> <fire|reload|equip> <frames> [frame-ticks]  (saved in guns.yml)
+#   GLOBAL fallback below: applies to any gun that has no per-gun animation of its own.
 fp-anim:
-  enabled: false
-  fire:   { frames: 4,  frame-ticks: 1 }
-  reload: { frames: 10, frame-ticks: 2 }
-  equip:  { frames: 6,  frame-ticks: 2 }
+  enabled: true
+  fire:   { frames: 0,  frame-ticks: 1 }
+  reload: { frames: 0,  frame-ticks: 2 }
+  equip:  { frames: 0,  frame-ticks: 2 }
 
 # Performance tuning. Tracers are the heaviest cosmetic - raise the step / lower the cap
 # if the server or clients struggle.

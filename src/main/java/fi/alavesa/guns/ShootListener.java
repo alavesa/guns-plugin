@@ -215,9 +215,6 @@ public final class ShootListener implements Listener {
     @EventHandler
     public void onDrawAnim(org.bukkit.event.player.PlayerItemHeldEvent event) {
         if (!fpAnim()) return;   // first-person item animations off (needs .bbmodel frames)
-        int frames = plugin.getConfig().getInt("fp-anim.equip.frames", 0);
-        if (frames <= 0) return;   // no equip clip authored/enabled
-        int frameTicks = Math.max(1, plugin.getConfig().getInt("fp-anim.equip.frame-ticks", 2));
         Player player = event.getPlayer();
         int slot = event.getNewSlot();
         // run next tick so this doesn't race the aim-on-draw handler
@@ -225,7 +222,9 @@ public final class ShootListener implements Listener {
             ItemStack held = player.getInventory().getItem(slot);
             Gun gun = registry.gunOf(held);
             if (gun == null || isAiming(player) || registry.ammoOf(held) <= 0) return;  // aim/empty own the model
-            playModelClip(player, gun, slot, "_equip", frames, frameTicks);
+            int[] a = clipFrames(gun, "equip");   // per-gun equip animation, else global fp-anim.equip
+            if (a[0] <= 0) return;                 // no equip clip authored for this gun
+            playModelClip(player, gun, slot, "_equip", a[0], a[1]);
         });
     }
 
@@ -234,16 +233,24 @@ public final class ShootListener implements Listener {
      *  .bbmodel (arm baked into the firstperson_righthand display, NOT the gui icon). Off until
      *  fp-anim.enabled + the frames exist. The item never leaves the inventory - this is exactly the
      *  CounterMine / Colorful Calibers style first-person setup. */
-    private boolean fpAnim() { return plugin.getConfig().getBoolean("fp-anim.enabled", false); }
+    private boolean fpAnim() { return plugin.getConfig().getBoolean("fp-anim.enabled", true); }
 
-    /** Play a first-person clip (e.g. "_reload") on the currently held gun from its config'd frame count. */
+    /** Play a first-person clip (e.g. "_reload") on the held gun. Frame count/timing come from the gun's OWN
+     *  animation (guns.yml &lt;gun&gt;.anim.&lt;clip&gt;) if it defines one, else the global fp-anim.&lt;clip&gt; config. */
     private void playFirstPersonClip(Player player, Gun gun, String suffix) {
         if (!fpAnim()) return;
         String clip = suffix.startsWith("_") ? suffix.substring(1) : suffix;
-        int frames = plugin.getConfig().getInt("fp-anim." + clip + ".frames", 0);
-        if (frames <= 0) return;
-        int ticks = Math.max(1, plugin.getConfig().getInt("fp-anim." + clip + ".frame-ticks", 2));
-        playModelClip(player, gun, player.getInventory().getHeldItemSlot(), suffix, frames, ticks);
+        int[] a = clipFrames(gun, clip);
+        if (a[0] <= 0) return;
+        playModelClip(player, gun, player.getInventory().getHeldItemSlot(), suffix, a[0], a[1]);
+    }
+
+    /** [frames, frameTicks] for a gun's clip: the gun's own animation first, then the global fp-anim config. */
+    private int[] clipFrames(Gun gun, String clip) {
+        int[] pergun = registry.gunAnim(gun.id(), clip);
+        if (pergun != null) return pergun;
+        return new int[]{ plugin.getConfig().getInt("fp-anim." + clip + ".frames", 0),
+                          Math.max(1, plugin.getConfig().getInt("fp-anim." + clip + ".frame-ticks", 2)) };
     }
 
     /** Swap the held gun's base model through &lt;model&gt;&lt;suffix&gt;1..N at frameTicks apart, then
