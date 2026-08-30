@@ -653,7 +653,10 @@ public final class ShootListener implements Listener {
      *  isHandRaised() can no longer tell us the trigger is held for full-auto. Instead every
      *  right-click refreshes a timestamp; auto keeps firing while clicks keep arriving within this
      *  grace window and stops shortly after the trigger is released. */
-    private static final long AUTO_GRACE_MS = 500;   // > the left-hold swing cadence, so auto sustains while held
+    /** How long after the last trigger click auto keeps firing. Holding LEFT-click re-sends a swing only at
+     *  the attack-cooldown cadence (~600ms), so 500ms let auto drop out between clicks - it must be LONGER
+     *  than that gap to sustain a held trigger. Configurable; a single tap fires for up to this long. */
+    private long autoGraceMs() { return plugin.getConfig().getLong("auto-grace-ms", 800); }
     private final Map<UUID, Long> lastTrigger = new ConcurrentHashMap<>();
 
     /** Players currently auto-firing (one repeating task each). */
@@ -672,7 +675,7 @@ public final class ShootListener implements Listener {
                 Gun g = registry.gunOf(held);
                 Long last = lastTrigger.get(id);
                 boolean triggerHeld = last != null
-                    && (System.currentTimeMillis() - last) <= AUTO_GRACE_MS;
+                    && (System.currentTimeMillis() - last) <= autoGraceMs();
                 if (!player.isOnline() || g == null || !g.id().equals(gun.id())
                     || !"auto".equals(registry.fireModeOf(held, g)) || !triggerHeld
                     || registry.ammoOf(held) <= 0) {   // empty: stop so the player can reload
@@ -966,9 +969,11 @@ public final class ShootListener implements Listener {
                 Math.toRadians(rng.nextGaussian() * spread * 0.5));
         }
         dir.normalize();
-        Location muzzle = barrelLocation(player, dir);
-        Vector aimPoint = player.getEyeLocation().toVector().add(dir.clone().multiply(60));
-        Vector velocity = aimPoint.clone().subtract(muzzle.toVector()).normalize().multiply(gun.speed());
+        Location muzzle = barrelLocation(player, dir);           // muzzle-flash origin only (cosmetic)
+        // The bullet travels ALONG the crosshair line (dir) - NOT from the offset muzzle toward a fixed
+        // zero point - so with spread 0 it hits exactly where the player aims at every range (the old
+        // muzzle->aimPoint convergence made it right/low of the crosshair except at ~60 blocks).
+        Vector velocity = dir.clone().multiply(gun.speed());
 
         player.getWorld().spawnParticle(Particle.DUST, muzzle, 6, 0.03, 0.03, 0.03, 0,
             new Particle.DustOptions(Color.WHITE, 0.7f));
@@ -995,7 +1000,10 @@ public final class ShootListener implements Listener {
                 }
             }
         }
-        Arrow bullet = player.getWorld().spawnArrow(muzzle, velocity, 1f, 0f);
+        // Spawn the bullet ON the aim line (just past the point-blank scan), moving along dir, so it stays
+        // exactly on the crosshair - the muzzle offset is used only for the flash, never the trajectory.
+        Location bulletStart = eye.clone().add(dir.clone().multiply(pbRange));
+        Arrow bullet = player.getWorld().spawnArrow(bulletStart, velocity, 1f, 0f);
         bullet.setShooter(player);
         bullet.setGravity(false);              // curve is applied manually by the tracker
         bullet.setVelocity(velocity);

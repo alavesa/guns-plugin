@@ -23,6 +23,12 @@ hide-swing-protocollib: true
 gun:
   attack-speed: 0.0
 
+# AUTO fire: how long (ms) after the last trigger click auto keeps firing. Holding LEFT-click only re-sends
+# a click at the attack-cooldown cadence (~600ms), so this must be longer than that gap to sustain a held
+# trigger - otherwise auto stutters/stops between clicks. Raise if hold-to-fire still drops out; lower if a
+# single tap sprays too long. (Right-click firing repeats more reliably while held.)
+auto-grace-ms: 800
+
 # Burst fire mode (when a gun's fire-modes include "burst").
 burst:
   count: 3          # rounds per burst
