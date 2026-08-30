@@ -656,7 +656,7 @@ public final class ShootListener implements Listener {
     /** How long after the last trigger click auto keeps firing. Holding LEFT-click re-sends a swing only at
      *  the attack-cooldown cadence (~600ms), so 500ms let auto drop out between clicks - it must be LONGER
      *  than that gap to sustain a held trigger. Configurable; a single tap fires for up to this long. */
-    private long autoGraceMs() { return plugin.getConfig().getLong("auto-grace-ms", 800); }
+    private long autoGraceMs() { return plugin.getConfig().getLong("auto-grace-ms", 150); }
     private final Map<UUID, Long> lastTrigger = new ConcurrentHashMap<>();
 
     /** Players currently auto-firing (one repeating task each). */
