@@ -1,0 +1,4 @@
+{
+  "comment": "FIRST-PERSON pistol model (shown only in firstperson via items/crossbow.json display_context). Replace this with a hand-baked version - the gun + the player's arms/hands baked into the firstperson_righthand display - so first person shows a full FPS view while the GUI icon and third-person stay the clean gun_pistol. For now it just inherits the plain pistol so nothing breaks.",
+  "parent": "guns:item/gun_pistol"
+}
