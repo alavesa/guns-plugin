@@ -653,39 +653,33 @@ public final class ShootListener implements Listener {
      *  isHandRaised() can no longer tell us the trigger is held for full-auto. Instead every
      *  right-click refreshes a timestamp; auto keeps firing while clicks keep arriving within this
      *  grace window and stops shortly after the trigger is released. */
-    /** How long after the last trigger click auto keeps firing. Holding LEFT-click re-sends a swing only at
-     *  the attack-cooldown cadence (~600ms), so 500ms let auto drop out between clicks - it must be LONGER
-     *  than that gap to sustain a held trigger. Configurable; a single tap fires for up to this long. */
-    private long autoGraceMs() { return plugin.getConfig().getLong("auto-grace-ms", 150); }
     private final Map<UUID, Long> lastTrigger = new ConcurrentHashMap<>();
 
     /** Players currently auto-firing (one repeating task each). */
     private final Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
 
-    /** Keep firing an AUTO gun while the trigger is held. shoot() enforces the
-     *  fire-rate, so a per-tick call fires exactly at the gun's cadence. Stops the
-     *  moment the player releases (hand no longer raised), swaps the gun, empties,
-     *  or flips back to semi. */
+    /** AUTO fire = a BOUNDED burst per trigger press that ALWAYS stops. Minecraft can't tell us when a
+     *  LEFT-click is released (it doesn't repeat on air), so a time-based "while held" loop would run on
+     *  after the finger is off - and a single press could never truly be sustained anyway. Instead each
+     *  press fires exactly `auto-burst` rounds (config, default 5) at the gun's fire-rate, then stops.
+     *  Click again for another burst; the guard stops a press from stacking a second burst mid-fire. */
     private void startAuto(Player player, Gun gun) {
         UUID id = player.getUniqueId();
         if (!autoFiring.add(id)) return;
-        new BukkitRunnable() {
-            @Override public void run() {
+        int maxShots = Math.max(1, plugin.getConfig().getInt("auto-burst", 5));
+        long interval = Math.max(1, gun.shotIntervalMs() / 50);   // fire-rate -> ticks between rounds
+        for (int i = 0; i < maxShots; i++) {
+            boolean lastShot = (i == maxShots - 1);
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
                 ItemStack held = player.getInventory().getItemInMainHand();
                 Gun g = registry.gunOf(held);
-                Long last = lastTrigger.get(id);
-                boolean triggerHeld = last != null
-                    && (System.currentTimeMillis() - last) <= autoGraceMs();
-                if (!player.isOnline() || g == null || !g.id().equals(gun.id())
-                    || !"auto".equals(registry.fireModeOf(held, g)) || !triggerHeld
-                    || registry.ammoOf(held) <= 0) {   // empty: stop so the player can reload
-                    autoFiring.remove(id);
-                    cancel();
-                    return;
+                if (player.isOnline() && g != null && g.id().equals(gun.id())
+                    && "auto".equals(registry.fireModeOf(held, g)) && registry.ammoOf(held) > 0) {
+                    shoot(player, g, held);
                 }
-                shoot(player, g, held);
-            }
-        }.runTaskTimer(plugin, 0L, 1L);
+                if (lastShot) autoFiring.remove(id);   // burst done - the next click can start a new one
+            }, (long) i * interval);
+        }
     }
 
     /** Belt and suspenders: no vanilla arrow may ever leave a gun. */

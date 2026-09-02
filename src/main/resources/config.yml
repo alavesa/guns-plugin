@@ -23,12 +23,11 @@ hide-swing-protocollib: true
 gun:
   attack-speed: 0.0
 
-# AUTO fire grace (ms). IMPORTANT: Minecraft does NOT repeat LEFT-click while you hold it on air (it swings
-# once per press), so on LEFT-fire "auto" can't truly sustain a held trigger - each click just fires for this
-# long. Keep this SHORT so a single tap = about one shot and STOPS (a big value makes one tap spray on). For
-# real hold-to-spray use fire-button: right (use-item repeats while held), or use BURST mode for a fixed
-# many-rounds-per-click. Right-fire auto can raise this safely.
-auto-grace-ms: 150
+# AUTO fire: rounds per trigger press. Minecraft can't tell the server when you release LEFT-click (it
+# doesn't repeat on air), so "auto" fires a fixed burst of this many rounds per press and then STOPS - it
+# can't run on after your finger is off. Click again for another burst. (Set high, e.g. 30, for a
+# spray-a-magazine feel per click; set 1 for one shot per click.)
+auto-burst: 5
 
 # Burst fire mode (when a gun's fire-modes include "burst").
 burst:
