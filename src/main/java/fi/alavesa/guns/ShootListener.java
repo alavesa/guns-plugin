@@ -592,51 +592,16 @@ public final class ShootListener implements Listener {
     // fire-button: left to fire on left-click if you accept the swing.
     private String fireButton() { return plugin.getConfig().getString("fire-button", "right").toLowerCase(); }
 
-    /** Fire according to the held gun's current mode: semi (one shot per click) or auto (hold to fire). */
+    /** Every LEFT-click fires at most ONE shot, gated purely by the gun's fire-rate cooldown (shoot()):
+     *   - a single TAP = one swing = one shot;
+     *   - clicking N times fast = at most N shots (cooldown drops the ones that come too soon), never a burst;
+     *   - HOLDING left-click makes the client re-send the swing every tick (gun holders get a high
+     *     attack_speed while an AUTO gun is out - see GunsPlugin), so shoot() is called each tick and fires
+     *     continuously at the fire-rate for as long as the button is down, then stops the moment it's
+     *     released (no more swings arrive). No background loop, so a click can never keep firing on its own. */
     private void fireByMode(Player player, Gun gun, ItemStack item) {
         if (reloading.contains(player.getUniqueId())) return;
-        if ("auto".equals(registry.fireModeOf(item, gun))) autoTrigger(player, gun, item);
-        else shoot(player, gun, item);   // semi: exactly one shot per click
-    }
-
-    /** Time of the player's last auto trigger click. Holding LEFT-click makes the client REPEAT the swing
-     *  (fast, because gun holders get a high attack_speed - see GunsPlugin), so clicks arriving close
-     *  together mean the trigger is still held. */
-    private final Map<UUID, Long> lastAutoClick = new ConcurrentHashMap<>();
-    /** A held trigger is "still down" while swings keep arriving within this window. Kept short so firing
-     *  stops promptly after release; the high attack_speed makes held swings faster than this. */
-    private static final long HOLD_WINDOW_MS = 250;
-
-    /** REAL auto fire. A single TAP fires EXACTLY ONE shot; HOLDING left-click fires continuously at the
-     *  gun's fire-rate until released. The continuous loop only starts on the SECOND swing of a hold, so one
-     *  tap can never spray multiple rounds. */
-    private void autoTrigger(Player player, Gun gun, ItemStack item) {
-        UUID id = player.getUniqueId();
-        long now = System.currentTimeMillis();
-        Long prev = lastAutoClick.put(id, now);
-        shoot(player, gun, item);   // every click = one shot (fire-rate enforced); THIS is the tap's single shot
-        // Two swings close together = the button is being HELD -> spin up the continuous fire-rate loop.
-        if (prev != null && (now - prev) <= HOLD_WINDOW_MS && autoFiring.add(id)) startAutoLoop(player, gun, id);
-    }
-
-    /** Fires at the gun's fire-rate while the trigger stays held (swings keep arriving within HOLD_WINDOW_MS);
-     *  stops shortly after release, or when the gun changes / empties / leaves auto. */
-    private void startAutoLoop(Player player, Gun gun, UUID id) {
-        new BukkitRunnable() {
-            @Override public void run() {
-                ItemStack held = player.getInventory().getItemInMainHand();
-                Gun g = registry.gunOf(held);
-                Long last = lastAutoClick.get(id);
-                boolean stillHeld = last != null && (System.currentTimeMillis() - last) <= HOLD_WINDOW_MS;
-                if (!player.isOnline() || g == null || !g.id().equals(gun.id())
-                    || !"auto".equals(registry.fireModeOf(held, g)) || !stillHeld || registry.ammoOf(held) <= 0) {
-                    autoFiring.remove(id);
-                    cancel();
-                    return;
-                }
-                shoot(player, g, held);
-            }
-        }.runTaskTimer(plugin, 1L, 1L);
+        shoot(player, gun, item);   // semi AND auto both fire one round per click; the fire-rate cooldown caps it
     }
 
     /** Left-click cycles the held gun's fire mode (only if it offers more than
@@ -663,8 +628,6 @@ public final class ShootListener implements Listener {
      *  completely white). See manageBobCooldown. */
     private static final int GUN_COOLDOWN_TICKS = 200;
 
-    /** Players currently running the continuous auto-fire loop (one task each). */
-    private final Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
 
     /** Belt and suspenders: no vanilla arrow may ever leave a gun. */
     @EventHandler

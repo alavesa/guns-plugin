@@ -71,13 +71,17 @@ public final class GunsPlugin extends JavaPlugin {
                 Gun gun = registry.gunOf(held);
                 var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
                 boolean holdingGun = gun != null;
+                // High attack_speed ONLY for an AUTO gun: it makes a HELD left-click re-swing every tick so
+                // auto fires continuously. A SEMI gun keeps normal attack_speed, so holding it doesn't
+                // auto-repeat - one shot per click.
+                boolean autoGun = holdingGun && "auto".equals(registry.fireModeOf(held, gun));
                 if (attr != null) {
                     var existing = attr.getModifier(atkKey);
-                    if (holdingGun && atkSpeed != 0.0 && existing == null) {
+                    if (autoGun && atkSpeed != 0.0 && existing == null) {
                         attr.addModifier(new org.bukkit.attribute.AttributeModifier(atkKey, atkSpeed,
                             org.bukkit.attribute.AttributeModifier.Operation.ADD_NUMBER,
                             org.bukkit.inventory.EquipmentSlotGroup.ANY));
-                    } else if ((!holdingGun || atkSpeed == 0.0) && existing != null) {
+                    } else if ((!autoGun || atkSpeed == 0.0) && existing != null) {
                         attr.removeModifier(atkKey);
                     }
                 }
