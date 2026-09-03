@@ -540,7 +540,6 @@ public final class ShootListener implements Listener {
                 // RIGHT-FIRE mode: right-click on an empty gun reloads; on a loaded gun it FIRES.
                 if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }
                 event.setCancelled(true);
-                lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
                 fireByMode(player, gun, item);
             } else {
                 // LEFT-FIRE mode: right reloads an empty gun (crossbow charge), toggles mode on a loaded one.
@@ -553,7 +552,6 @@ public final class ShootListener implements Listener {
             if (rightFire) { toggleMode(player, gun, item); return; }
             // LEFT-FIRE mode: fire on the CLICK (not the swing). With attack_speed near 0 the client
             // plays no swing animation, but the left-click interact still fires here.
-            lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
             fireByMode(player, gun, item);
         }
     }
@@ -572,7 +570,6 @@ public final class ShootListener implements Listener {
         Gun gun = registry.gunOf(item);
         if (gun == null || gun.isSpyglass()) return;   // spyglass fires on left-click/swing
         event.setCancelled(true);
-        lastTrigger.put(player.getUniqueId(), System.currentTimeMillis());
         fireByMode(player, gun, item);
     }
 
@@ -595,34 +592,51 @@ public final class ShootListener implements Listener {
     // fire-button: left to fire on left-click if you accept the swing.
     private String fireButton() { return plugin.getConfig().getString("fire-button", "right").toLowerCase(); }
 
-    /** Fire according to the held gun's current mode: semi (one shot), auto (held), or burst (N rounds). */
+    /** Fire according to the held gun's current mode: semi (one shot per click) or auto (hold to fire). */
     private void fireByMode(Player player, Gun gun, ItemStack item) {
         if (reloading.contains(player.getUniqueId())) return;
-        switch (registry.fireModeOf(item, gun)) {
-            case "auto"  -> startAuto(player, gun);
-            case "burst" -> startBurst(player, gun);
-            default      -> shoot(player, gun, item);
-        }
+        if ("auto".equals(registry.fireModeOf(item, gun))) autoTrigger(player, gun, item);
+        else shoot(player, gun, item);   // semi: exactly one shot per click
     }
 
-    private final Set<UUID> bursting = ConcurrentHashMap.newKeySet();
-    /** Burst: fire a fixed number of rounds at a set spacing, then stop (config burst.count / burst.delay-ticks). */
-    private void startBurst(Player player, Gun gun) {
+    /** Time of the player's last auto trigger click. Holding LEFT-click makes the client REPEAT the swing
+     *  (fast, because gun holders get a high attack_speed - see GunsPlugin), so clicks arriving close
+     *  together mean the trigger is still held. */
+    private final Map<UUID, Long> lastAutoClick = new ConcurrentHashMap<>();
+    /** A held trigger is "still down" while swings keep arriving within this window. Kept short so firing
+     *  stops promptly after release; the high attack_speed makes held swings faster than this. */
+    private static final long HOLD_WINDOW_MS = 250;
+
+    /** REAL auto fire. A single TAP fires EXACTLY ONE shot; HOLDING left-click fires continuously at the
+     *  gun's fire-rate until released. The continuous loop only starts on the SECOND swing of a hold, so one
+     *  tap can never spray multiple rounds. */
+    private void autoTrigger(Player player, Gun gun, ItemStack item) {
         UUID id = player.getUniqueId();
-        if (!bursting.add(id)) return;   // ignore re-trigger mid-burst
-        int count = Math.max(1, plugin.getConfig().getInt("burst.count", 3));
-        long delay = Math.max(1, plugin.getConfig().getInt("burst.delay-ticks", 2));
+        long now = System.currentTimeMillis();
+        Long prev = lastAutoClick.put(id, now);
+        shoot(player, gun, item);   // every click = one shot (fire-rate enforced); THIS is the tap's single shot
+        // Two swings close together = the button is being HELD -> spin up the continuous fire-rate loop.
+        if (prev != null && (now - prev) <= HOLD_WINDOW_MS && autoFiring.add(id)) startAutoLoop(player, gun, id);
+    }
+
+    /** Fires at the gun's fire-rate while the trigger stays held (swings keep arriving within HOLD_WINDOW_MS);
+     *  stops shortly after release, or when the gun changes / empties / leaves auto. */
+    private void startAutoLoop(Player player, Gun gun, UUID id) {
         new BukkitRunnable() {
-            int n = 0;
             @Override public void run() {
                 ItemStack held = player.getInventory().getItemInMainHand();
                 Gun g = registry.gunOf(held);
+                Long last = lastAutoClick.get(id);
+                boolean stillHeld = last != null && (System.currentTimeMillis() - last) <= HOLD_WINDOW_MS;
                 if (!player.isOnline() || g == null || !g.id().equals(gun.id())
-                    || registry.ammoOf(held) <= 0 || n >= count) { bursting.remove(id); cancel(); return; }
+                    || !"auto".equals(registry.fireModeOf(held, g)) || !stillHeld || registry.ammoOf(held) <= 0) {
+                    autoFiring.remove(id);
+                    cancel();
+                    return;
+                }
                 shoot(player, g, held);
-                n++;
             }
-        }.runTaskTimer(plugin, 0L, delay);
+        }.runTaskTimer(plugin, 1L, 1L);
     }
 
     /** Left-click cycles the held gun's fire mode (only if it offers more than
@@ -649,38 +663,8 @@ public final class ShootListener implements Listener {
      *  completely white). See manageBobCooldown. */
     private static final int GUN_COOLDOWN_TICKS = 200;
 
-    /** Since the bob-fix cooldown stops the crossbow from ever entering its vanilla "using" state,
-     *  isHandRaised() can no longer tell us the trigger is held for full-auto. Instead every
-     *  right-click refreshes a timestamp; auto keeps firing while clicks keep arriving within this
-     *  grace window and stops shortly after the trigger is released. */
-    private final Map<UUID, Long> lastTrigger = new ConcurrentHashMap<>();
-
-    /** Players currently auto-firing (one repeating task each). */
+    /** Players currently running the continuous auto-fire loop (one task each). */
     private final Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
-
-    /** AUTO fire = a BOUNDED burst per trigger press that ALWAYS stops. Minecraft can't tell us when a
-     *  LEFT-click is released (it doesn't repeat on air), so a time-based "while held" loop would run on
-     *  after the finger is off - and a single press could never truly be sustained anyway. Instead each
-     *  press fires exactly `auto-burst` rounds (config, default 5) at the gun's fire-rate, then stops.
-     *  Click again for another burst; the guard stops a press from stacking a second burst mid-fire. */
-    private void startAuto(Player player, Gun gun) {
-        UUID id = player.getUniqueId();
-        if (!autoFiring.add(id)) return;
-        int maxShots = Math.max(1, plugin.getConfig().getInt("auto-burst", 5));
-        long interval = Math.max(1, gun.shotIntervalMs() / 50);   // fire-rate -> ticks between rounds
-        for (int i = 0; i < maxShots; i++) {
-            boolean lastShot = (i == maxShots - 1);
-            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                ItemStack held = player.getInventory().getItemInMainHand();
-                Gun g = registry.gunOf(held);
-                if (player.isOnline() && g != null && g.id().equals(gun.id())
-                    && "auto".equals(registry.fireModeOf(held, g)) && registry.ammoOf(held) > 0) {
-                    shoot(player, g, held);
-                }
-                if (lastShot) autoFiring.remove(id);   // burst done - the next click can start a new one
-            }, (long) i * interval);
-        }
-    }
 
     /** Belt and suspenders: no vanilla arrow may ever leave a gun. */
     @EventHandler

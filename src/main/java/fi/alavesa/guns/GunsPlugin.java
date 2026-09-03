@@ -65,7 +65,7 @@ public final class GunsPlugin extends JavaPlugin {
         final org.bukkit.NamespacedKey atkKey = new org.bukkit.NamespacedKey(this, "gun_attack_speed");
         getServer().getScheduler().runTaskTimer(this, () -> {
             boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", true);   // removes the MINING swing (block-click)
-            double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // optional; sword indicator, NOT swing removal
+            double atkSpeed = getConfig().getDouble("gun.attack-speed", 16.0);      // +16 -> attack_speed ~20 = fast repeated swings so HELD left-click drives auto fire
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
@@ -455,7 +455,7 @@ public final class GunsPlugin extends JavaPlugin {
                     sender.sendMessage(Component.text("config gun-mining-fatigue = "
                         + getConfig().getBoolean("gun-mining-fatigue", true), NamedTextColor.AQUA));
                     sender.sendMessage(Component.text("config gun.attack-speed = "
-                        + getConfig().getDouble("gun.attack-speed", -100.0), NamedTextColor.AQUA));
+                        + getConfig().getDouble("gun.attack-speed", 16.0), NamedTextColor.AQUA));
                     sender.sendMessage(Component.text("LIVE attack_speed total = "
                         + (attr != null ? attr.getValue() : "n/a")
                         + " (base " + (attr != null ? attr.getBaseValue() : "?") + "; want ~0)",

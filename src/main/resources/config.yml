@@ -18,21 +18,11 @@ gun-mining-fatigue: true
 # Hide the arm swing from OTHER players at the packet level too. Only used if ProtocolLib is installed.
 hide-swing-protocollib: true
 
-# Optional generic.attack_speed modifier while a gun is held. -100 shows the sword cooldown indicator (the
-# StatesMC tell) and stops melee. Does NOT remove the swing. Default 0 (off).
+# generic.attack_speed modifier added to base 4 while a gun is held. This drives AUTO fire: a high value
+# (16 -> ~20 total) makes HOLDING left-click repeat the swing every tick, which is how the plugin knows the
+# trigger is held. Keep it high for auto to work. (Set 0 to disable, but then hold-to-fire won't work.)
 gun:
-  attack-speed: 0.0
-
-# AUTO fire: rounds per trigger press. Minecraft can't tell the server when you release LEFT-click (it
-# doesn't repeat on air), so "auto" fires a fixed burst of this many rounds per press and then STOPS - it
-# can't run on after your finger is off. Click again for another burst. (Set high, e.g. 30, for a
-# spray-a-magazine feel per click; set 1 for one shot per click.)
-auto-burst: 5
-
-# Burst fire mode (when a gun's fire-modes include "burst").
-burst:
-  count: 3          # rounds per burst
-  delay-ticks: 2    # ticks between rounds
+  attack-speed: 16.0
 
 # CUSTOM FIRST-PERSON gun animations (arm baked into the model's firstperson_righthand display). The plugin
 # flips the held model through <gunmodel>_<clip>1..N frames you author in the resource pack, on fire / reload
