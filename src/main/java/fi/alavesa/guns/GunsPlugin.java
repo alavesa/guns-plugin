@@ -44,7 +44,6 @@ public final class GunsPlugin extends JavaPlugin {
         ShootListener shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
-        getServer().getScheduler().runTaskTimer(this, shootListener::autoFireTick, 1L, 1L);   // full-auto while RIGHT held
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
@@ -72,9 +71,9 @@ public final class GunsPlugin extends JavaPlugin {
                 Gun gun = registry.gunOf(held);
                 var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
                 boolean holdingGun = gun != null;
-                // attack_speed is no longer how auto fire works (auto = HOLD RIGHT-click, detected via the
-                // gun's consumable "using" state in ShootListener.autoFireTick). Left over as an optional
-                // tweak: default 0 = untouched. Apply a modifier only if the config sets a non-zero value.
+                // attack_speed does NOT drive fire any more (firing is per left-click; full-auto = tap fast,
+                // capped by each gun's fire-rate). Left over only as an optional melee-swing tweak: default
+                // 0 = untouched. Apply a modifier only if the config sets a non-zero value.
                 if (attr != null) {
                     var existing = attr.getModifier(atkKey);
                     if (holdingGun && atkSpeed != 0.0 && existing == null) {

@@ -68,7 +68,7 @@ guns:
     name: "&2Venom SMG"
     model: gun_venom
     damage: 2.0
-    fire-rate: 5.0
+    fire-rate: 8.0
     range: 30
     magazine: 20
     reload-ticks: 35

@@ -968,13 +968,8 @@ public final class GunRegistry {
     private ItemStack noSwing(ItemStack item) {
         try {
             // swing_animation: stretch the arm swing toward invisibility (best-effort).
-            // consumable: makes right-click-HOLD a continuous "using" state (isHandRaised) with NO eating
-            //   animation and a huge duration so it never completes - this is how the plugin detects a HELD
-            //   right mouse button for full-auto fire (Minecraft only exposes a held state for the use/right
-            //   button, never left-click on air). PlayerItemConsumeEvent is cancelled so the gun is never eaten.
             ItemStack modified = org.bukkit.Bukkit.getUnsafe().modifyItemStack(item,
-                item.getType().getKey() + "[minecraft:swing_animation={type:\"whack\",duration:2147483647},"
-                + "minecraft:consumable={consume_seconds:3600,animation:\"none\",has_consume_particles:false}]");
+                item.getType().getKey() + "[minecraft:swing_animation={type:\"whack\",duration:2147483647}]");
             return modified != null ? modified : item;
         } catch (Throwable t) {
             return item;

@@ -5,11 +5,11 @@
 # client-predicted so a frame or two may still slip through (a full first-person removal needs a client mod).
 #
 # CONTROLS (fixed):
-#   LEFT-click  = fire ONE shot per click (semi). Works on every gun.
-#   RIGHT-click = full-AUTO on an auto-mode gun: HOLD it to fire continuously at the gun's fire-rate,
-#                 release to stop. On an empty gun right-click reloads. Switch modes with /guns firemode.
-# (Minecraft only exposes a HELD button state for the right/use button, never for left-click on air -
-#  that is why hold-to-fire is on right-click. The gun uses a hidden consumable component to detect it.)
+#   LEFT-click  = fire ONE shot per click. EVERY gun, semi and auto alike. Full-auto = tap fast: each
+#                 click fires one round, capped by the gun's fire-rate (raise a gun's fire-rate in guns.yml
+#                 so fast clicking sprays smoothly). Minecraft sends NO held-button state for left-click on
+#                 air, so true hold-to-fire is impossible here - clicking is the trigger.
+#   RIGHT-click = reload an empty gun; cycle fire mode on a loaded one. (Spyglass guns keep the scope zoom.)
 fire-button: left
 
 
