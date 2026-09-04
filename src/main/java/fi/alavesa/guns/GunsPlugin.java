@@ -44,6 +44,7 @@ public final class GunsPlugin extends JavaPlugin {
         ShootListener shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
+        getServer().getScheduler().runTaskTimer(this, shootListener::autoFireTick, 1L, 1L);   // full-auto while RIGHT held
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
@@ -65,23 +66,22 @@ public final class GunsPlugin extends JavaPlugin {
         final org.bukkit.NamespacedKey atkKey = new org.bukkit.NamespacedKey(this, "gun_attack_speed");
         getServer().getScheduler().runTaskTimer(this, () -> {
             boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", true);   // removes the MINING swing (block-click)
-            double atkSpeed = getConfig().getDouble("gun.attack-speed", 16.0);      // +16 -> attack_speed ~20 = fast repeated swings so HELD left-click drives auto fire
+            double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // optional attack_speed modifier while a gun is held (auto no longer needs it)
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
                 var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
                 boolean holdingGun = gun != null;
-                // High attack_speed ONLY for an AUTO gun: it makes a HELD left-click re-swing every tick so
-                // auto fires continuously. A SEMI gun keeps normal attack_speed, so holding it doesn't
-                // auto-repeat - one shot per click.
-                boolean autoGun = holdingGun && "auto".equals(registry.fireModeOf(held, gun));
+                // attack_speed is no longer how auto fire works (auto = HOLD RIGHT-click, detected via the
+                // gun's consumable "using" state in ShootListener.autoFireTick). Left over as an optional
+                // tweak: default 0 = untouched. Apply a modifier only if the config sets a non-zero value.
                 if (attr != null) {
                     var existing = attr.getModifier(atkKey);
-                    if (autoGun && atkSpeed != 0.0 && existing == null) {
+                    if (holdingGun && atkSpeed != 0.0 && existing == null) {
                         attr.addModifier(new org.bukkit.attribute.AttributeModifier(atkKey, atkSpeed,
                             org.bukkit.attribute.AttributeModifier.Operation.ADD_NUMBER,
                             org.bukkit.inventory.EquipmentSlotGroup.ANY));
-                    } else if ((!autoGun || atkSpeed == 0.0) && existing != null) {
+                    } else if ((!holdingGun || atkSpeed == 0.0) && existing != null) {
                         attr.removeModifier(atkKey);
                     }
                 }

@@ -532,28 +532,26 @@ public final class ShootListener implements Listener {
         if (gun == null) return;
         repairPose(item);
         Player player = event.getPlayer();
-        boolean rightFire = "right".equals(fireButton());
         boolean spy = gun.isSpyglass();
-        if (right) {
-            if (spy) return;                     // spyglass: right-click keeps the vanilla scope zoom
-            if (rightFire) {
-                // RIGHT-FIRE mode: right-click on an empty gun reloads; on a loaded gun it FIRES.
-                if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }
-                event.setCancelled(true);
-                fireByMode(player, gun, item);
-            } else {
-                // LEFT-FIRE mode: right reloads an empty gun (crossbow charge), toggles mode on a loaded one.
-                if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }
-                event.setCancelled(true);
-                toggleMode(player, gun, item);
-            }
-        } else if (left) {
-            event.setCancelled(true);            // block block-breaking/melee with a gun
-            if (rightFire) { toggleMode(player, gun, item); return; }
-            // LEFT-FIRE mode: fire on the CLICK (not the swing). With attack_speed near 0 the client
-            // plays no swing animation, but the left-click interact still fires here.
-            fireByMode(player, gun, item);
+        if (left) {
+            event.setCancelled(true);            // no melee/block-break with a gun
+            fireByMode(player, gun, item);       // LEFT = one shot per click (semi); fire-rate gated
+            return;
         }
+        // RIGHT click:
+        if (spy) return;                         // spyglass: right-click keeps the vanilla scope zoom
+        if (registry.ammoOf(item) <= 0) {        // empty -> reload
+            showEmptyModel(player, item, gun); lendArrowFor(player); return;
+        }
+        if ("auto".equals(registry.fireModeOf(item, gun))) {
+            // AUTO: holding RIGHT-click keeps the gun's consumable "using" state alive (isHandRaised), and
+            // autoFireTick() fires at the fire-rate for as long as it's held. Do NOT cancel the interact -
+            // that would stop the use state from starting. Mode is switched with /guns firemode.
+            return;
+        }
+        // Loaded SEMI on right-click: also fire one shot (right-click-to-fire for semi).
+        event.setCancelled(true);
+        fireByMode(player, gun, item);
     }
 
     /** While seated in a vehicle (a car) your view is filled by the car model, so
@@ -601,7 +599,32 @@ public final class ShootListener implements Listener {
      *     released (no more swings arrive). No background loop, so a click can never keep firing on its own. */
     private void fireByMode(Player player, Gun gun, ItemStack item) {
         if (reloading.contains(player.getUniqueId())) return;
-        shoot(player, gun, item);   // semi AND auto both fire one round per click; the fire-rate cooldown caps it
+        shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
+    }
+
+    /** FULL-AUTO. Called every tick from GunsPlugin. Minecraft only ever tells the server that a mouse
+     *  button is HELD for the use/right button (left-click on air is a single edge, never a held state),
+     *  so auto fire is driven by the RIGHT button: the gun carries a consumable component, and holding
+     *  right-click keeps it in the "using" state (isHandRaised) with no eating animation and a 3600s
+     *  duration so it never completes. While an auto gun is being used this way we fire at the gun's
+     *  fire-rate (shoot() caps the cadence); releasing right-click ends the use so firing stops instantly. */
+    public void autoFireTick() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            if (!p.isHandRaised()) continue;                       // right button not held
+            ItemStack active = p.getActiveItem();                  // the item being "used" (held right-click)
+            Gun gun = registry.gunOf(active);
+            if (gun == null || !"auto".equals(registry.fireModeOf(active, gun))) continue;
+            if (registry.ammoOf(active) <= 0) continue;            // empty: right-click reloads instead
+            if (reloading.contains(p.getUniqueId())) continue;
+            shoot(p, gun, active);                                 // fire-rate gated -> continuous auto
+        }
+    }
+
+    /** The consumable component on a gun exists ONLY to expose the held-right state for auto fire - the
+     *  gun must never actually be eaten. Cancel any consume so the item is never destroyed. */
+    @EventHandler
+    public void onConsume(org.bukkit.event.player.PlayerItemConsumeEvent event) {
+        if (registry.gunOf(event.getItem()) != null) event.setCancelled(true);
     }
 
     /** Left-click cycles the held gun's fire mode (only if it offers more than

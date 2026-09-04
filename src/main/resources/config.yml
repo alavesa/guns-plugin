@@ -4,9 +4,12 @@
 # slot (which resets the shooter's own first-person hand). Third-person is fully removed; first-person is
 # client-predicted so a frame or two may still slip through (a full first-person removal needs a client mod).
 #
-# Which mouse button fires:
-#   left  = fire on LEFT-click.
-#   right = fire on RIGHT-click (use-item); auto-fire repeats while the button is held.
+# CONTROLS (fixed):
+#   LEFT-click  = fire ONE shot per click (semi). Works on every gun.
+#   RIGHT-click = full-AUTO on an auto-mode gun: HOLD it to fire continuously at the gun's fire-rate,
+#                 release to stop. On an empty gun right-click reloads. Switch modes with /guns firemode.
+# (Minecraft only exposes a HELD button state for the right/use button, never for left-click on air -
+#  that is why hold-to-fire is on right-click. The gun uses a hidden consumable component to detect it.)
 fire-button: left
 
 
@@ -18,11 +21,11 @@ gun-mining-fatigue: true
 # Hide the arm swing from OTHER players at the packet level too. Only used if ProtocolLib is installed.
 hide-swing-protocollib: true
 
-# generic.attack_speed modifier added to base 4 while a gun is held. This drives AUTO fire: a high value
-# (16 -> ~20 total) makes HOLDING left-click repeat the swing every tick, which is how the plugin knows the
-# trigger is held. Keep it high for auto to work. (Set 0 to disable, but then hold-to-fire won't work.)
+# Optional generic.attack_speed modifier added while a gun is held. Auto fire NO LONGER needs this (auto is
+# hold-RIGHT-click, detected via the consumable use-state), so the default is 0 = leave attack_speed alone.
+# Set a value only if you want faster/slower melee swing speed while holding a gun.
 gun:
-  attack-speed: 16.0
+  attack-speed: 0.0
 
 # CUSTOM FIRST-PERSON gun animations (arm baked into the model's firstperson_righthand display). The plugin
 # flips the held model through <gunmodel>_<clip>1..N frames you author in the resource pack, on fire / reload
