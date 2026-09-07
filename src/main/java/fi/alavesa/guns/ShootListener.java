@@ -534,12 +534,20 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (left) {
             event.setCancelled(true);            // no melee/block-break with a gun
-            fireByMode(player, gun, item);       // LEFT = one shot per click, EVERY gun; fire-rate gated.
-            return;                              // Full-auto = tap fast (client sends no held-state for left).
+            fireByMode(player, gun, item);       // LEFT = one shot per click, EVERY gun; fire-rate gated
+            return;
         }
-        // RIGHT click: reload an empty gun (crossbow draw), or cycle fire mode on a loaded one.
+        // RIGHT click.
         if (gun.isSpyglass()) return;            // spyglass keeps the vanilla scope zoom
-        if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }
+        if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }  // reload
+        if ("auto".equals(registry.fireModeOf(item, gun))) {
+            // AUTO: HOLDING right-click keeps the gun's consumable "using" state alive (isHandRaised); the
+            // per-tick autoFireTick() fires at the fire-rate for as long as it's held, and releasing ends the
+            // use so firing stops. Do NOT cancel the interact or the use-state never starts. Switch back to
+            // semi with /guns firemode.
+            return;
+        }
+        // Loaded SEMI on right-click: cycle the fire mode (a quick way to flip semi -> auto).
         event.setCancelled(true);
         toggleMode(player, gun, item);
     }
@@ -590,6 +598,44 @@ public final class ShootListener implements Listener {
     private void fireByMode(Player player, Gun gun, ItemStack item) {
         if (reloading.contains(player.getUniqueId())) return;
         shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
+    }
+
+    /** Players who ran /guns holddebug: while on, they get a per-tick actionbar showing the raw right-hold
+     *  state, so we can see whether the consumable use-state actually stays raised while right is held. */
+    public final java.util.Set<UUID> holdDebug = ConcurrentHashMap.newKeySet();
+
+    /** FULL-AUTO. Called every tick from GunsPlugin. Minecraft only reports a HELD button state for the
+     *  use/right button (left-click on air is a single edge, never a held state), so auto fire is driven by
+     *  the RIGHT button: each gun carries a consumable component, and holding right-click keeps it in the
+     *  "using" state (isHandRaised) - no eating animation, 3600s duration so it never completes. While an
+     *  auto gun is being used this way we fire at the gun's fire-rate (shoot() caps the cadence); releasing
+     *  right-click ends the use so firing stops instantly. */
+    public void autoFireTick() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            boolean raised = p.isHandRaised();
+            ItemStack active = raised ? p.getActiveItem() : null;
+            Gun activeGun = registry.gunOf(active);
+            if (holdDebug.contains(p.getUniqueId())) {
+                ItemStack held = p.getInventory().getItemInMainHand();
+                Gun heldGun = registry.gunOf(held);
+                p.sendActionBar(net.kyori.adventure.text.Component.text(
+                    "hold raised=" + raised
+                    + " active=" + (activeGun != null ? activeGun.id() : (active != null ? active.getType() : "-"))
+                    + " mode=" + (heldGun != null ? registry.fireModeOf(held, heldGun) : "-")));
+            }
+            if (!raised || activeGun == null) continue;                 // right not held / not using a gun
+            if (!"auto".equals(registry.fireModeOf(active, activeGun))) continue;
+            if (registry.ammoOf(active) <= 0) continue;                 // empty: right-click reloads instead
+            if (reloading.contains(p.getUniqueId())) continue;
+            shoot(p, activeGun, active);                                // fire-rate gated -> continuous auto
+        }
+    }
+
+    /** The consumable component exists ONLY to expose the held-right state for auto fire - the gun must
+     *  never actually be eaten. Cancel any consume so the item is never destroyed. */
+    @EventHandler
+    public void onConsume(org.bukkit.event.player.PlayerItemConsumeEvent event) {
+        if (registry.gunOf(event.getItem()) != null) event.setCancelled(true);
     }
 
     /** Left-click cycles the held gun's fire mode (only if it offers more than

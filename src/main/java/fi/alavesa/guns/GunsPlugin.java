@@ -19,6 +19,7 @@ public final class GunsPlugin extends JavaPlugin {
     private static GunRegistry REGISTRY;   // static handle for cross-plugin damage lookups
     private DamageCounter damageCounter;
     public DamageCounter damageCounter() { return damageCounter; }
+    private ShootListener shootListener;
 
     /** The configured damage of the gun this item is, or -1 if it isn't a gun.
      *  Other plugins (Terminal's CCTV bodies) call this by reflection to charge
@@ -41,9 +42,10 @@ public final class GunsPlugin extends JavaPlugin {
         damageCounter = new DamageCounter(this);
         getServer().getPluginManager().registerEvents(damageCounter, this);
         getServer().getScheduler().runTaskTimer(this, damageCounter, 20L, 10L);   // fade the counter after 3s idle
-        ShootListener shootListener = new ShootListener(this, registry, ammoBar);
+        shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
+        getServer().getScheduler().runTaskTimer(this, shootListener::autoFireTick, 1L, 1L);   // full-auto while RIGHT held
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
@@ -437,6 +439,18 @@ public final class GunsPlugin extends JavaPlugin {
                     player.playSound(player.getLocation(), "minecraft:block.lever.click", 0.7f, 1.4f);
                     return true;
                 }
+                case "holddebug", "hold" -> {
+                    if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
+                    if (shootListener.holdDebug.remove(player.getUniqueId())) {
+                        sender.sendMessage(Component.text("Hold-debug OFF.", NamedTextColor.GRAY));
+                    } else {
+                        shootListener.holdDebug.add(player.getUniqueId());
+                        sender.sendMessage(Component.text("Hold-debug ON. Hold an AUTO gun and press RIGHT-click; "
+                            + "the action bar shows raised=<held?> active=<gun> mode=<mode>. "
+                            + "'raised=true' while holding right = auto fire will work.", NamedTextColor.GOLD));
+                    }
+                    return true;
+                }
                 case "swingdebug", "swing" -> {
                     if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
                     var held = player.getInventory().getItemInMainHand();
@@ -481,7 +495,7 @@ public final class GunsPlugin extends JavaPlugin {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
             case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode", "armor",
-                "attachments", "giveattachment", "attach", "detach", "swingdebug", "anim"), args[0]);
+                "attachments", "giveattachment", "attach", "detach", "swingdebug", "holddebug", "anim"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("giveattachment") || args[0].equalsIgnoreCase("attach")
                     || args[0].equalsIgnoreCase("detach")) {
