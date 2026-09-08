@@ -535,7 +535,11 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (left) {
             event.setCancelled(true);            // no melee/block-break with a gun
-            fireByMode(player, gun, item);       // LEFT = fire, EVERY gun (semi and auto); fire-rate gated
+            if ("auto".equals(registry.fireModeOf(item, gun))) {
+                toggleAutoFire(player, gun, item);   // AUTO: tap to START continuous fire, tap again to STOP
+            } else {
+                fireByMode(player, gun, item);       // SEMI: one shot per click
+            }
             return;
         }
         // RIGHT click = RELOAD only. A gun NEVER fires on right-click.
@@ -590,6 +594,51 @@ public final class ShootListener implements Listener {
     private void fireByMode(Player player, Gun gun, ItemStack item) {
         if (reloading.contains(player.getUniqueId())) return;
         shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
+    }
+
+    /** Players whose AUTO gun is currently spraying (toggled on by a left-click). */
+    private final java.util.Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
+    /** Debounce so one physical click can't register as two toggles. */
+    private final Map<UUID, Long> autoToggleCd = new ConcurrentHashMap<>();
+
+    /** AUTO-mode LEFT-click TOGGLE. True hold-to-fire is impossible on the left button (Minecraft never
+     *  tells the server the left button is HELD when you click air - it only repeats the swing while mining
+     *  a block), so full-auto on the left is a toggle: tap to START continuous fire, tap again to STOP. It
+     *  also stops on its own when the magazine runs dry, the gun is holstered/switched, or a reload starts.
+     *  autoFireTick() (per tick) does the actual firing at the gun's fire-rate. */
+    private void toggleAutoFire(Player player, Gun gun, ItemStack item) {
+        UUID id = player.getUniqueId();
+        long now = System.currentTimeMillis();
+        Long cd = autoToggleCd.get(id);
+        if (cd != null && now - cd < 250) return;      // one click = one toggle
+        autoToggleCd.put(id, now);
+        if (autoFiring.remove(id)) {                   // was ON -> turn OFF
+            Msg.actionbar(player, Component.text("Auto: OFF", NamedTextColor.GRAY));
+            return;
+        }
+        if (reloading.contains(id)) return;
+        if (registry.ammoOf(item) <= 0) { shoot(player, gun, item); return; }  // empty click = the dry-fire feedback
+        autoFiring.add(id);                            // turn ON, fire the first round immediately
+        shoot(player, gun, item);
+    }
+
+    /** Per-tick: fire the guns of everyone whose AUTO spray is toggled on. Stops (drops them from the set)
+     *  the moment they no longer hold that loaded auto gun, or a reload begins. */
+    public void autoFireTick() {
+        if (autoFiring.isEmpty()) return;
+        for (java.util.Iterator<UUID> it = autoFiring.iterator(); it.hasNext(); ) {
+            UUID id = it.next();
+            Player p = plugin.getServer().getPlayer(id);
+            if (p == null || !p.isOnline()) { it.remove(); continue; }
+            ItemStack held = p.getInventory().getItemInMainHand();
+            Gun g = registry.gunOf(held);
+            if (g == null || !"auto".equals(registry.fireModeOf(held, g))
+                || registry.ammoOf(held) <= 0 || reloading.contains(id)) {
+                it.remove();                            // switched away / empty / reloading -> stop
+                continue;
+            }
+            shoot(p, g, held);                          // fire-rate gated -> continuous spray
+        }
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the

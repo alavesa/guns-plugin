@@ -5,8 +5,13 @@
 # client-predicted so a frame or two may still slip through (a full first-person removal needs a client mod).
 #
 # CONTROLS (fixed):
-#   LEFT-click  = FIRE. Every gun, one shot per click. (Full-auto guns: tap fast - Minecraft gives the
-#                 server no held-button state for left-click on air, so clicking is the trigger.)
+#   LEFT-click  = FIRE.
+#                 - SEMI gun: one shot per click.
+#                 - AUTO gun: TOGGLE full-auto - tap once to START spraying at the fire-rate, tap again to
+#                   STOP. It also stops on its own when the magazine empties, you switch/holster the gun, or
+#                   you reload. (Hold-to-fire is impossible on the left button: Minecraft never reports the
+#                   left button as HELD when you click air, so a tap-toggle is how full-auto works here.)
+#                 Switch a gun between semi and auto with /guns firemode.
 #   RIGHT-click = RELOAD. Never fires. A timer reload plays the reload sound/animation and loads a fresh
 #                 magazine - no arrow/"round" item is ever put in your inventory.
 fire-button: left
