@@ -641,6 +641,34 @@ public final class GunRegistry {
             load();
             return;
         }
+        // v0.67: a Kriss Vector .45 SMG - fast full-auto (LEFT-tap toggle), 25-round mag.
+        if (yaml.getConfigurationSection("guns") != null
+            && yaml.getConfigurationSection("guns.vector") == null
+            && !yaml.getBoolean("vector-offered", false)) {
+            yaml.set("guns.vector.name", "&fKriss Vector");
+            yaml.set("guns.vector.model", "gun_vector");
+            yaml.set("guns.vector.damage", 3.5);
+            yaml.set("guns.vector.fire-rate", 9.0);
+            yaml.set("guns.vector.range", 40);
+            yaml.set("guns.vector.magazine", 25);
+            yaml.set("guns.vector.reload-ticks", 30);
+            yaml.set("guns.vector.sound", "minecraft:block.bamboo.hit");
+            yaml.set("guns.vector.sound-pitch", 1.9);
+            yaml.set("guns.vector.fire-modes", "semi,auto");
+            yaml.set("guns.vector.spread", 2.0);
+            yaml.set("guns.vector.aim-spread", 0.4);
+            yaml.set("guns.vector.recoil", 0.6);
+            yaml.set("guns.vector.mag", "mag_smg");
+            yaml.set("vector-offered", true);
+            try {
+                yaml.save(file);
+            } catch (java.io.IOException e) {
+                plugin.getLogger().severe("Could not save guns.yml: " + e.getMessage());
+            }
+            plugin.getLogger().info("Added the Kriss Vector to guns.yml (delete it or set vector-offered if unwanted).");
+            load();
+            return;
+        }
         ConfigurationSection groot = yaml.getConfigurationSection("grenades");
         if (groot != null) {
             for (String id : groot.getKeys(false)) {
