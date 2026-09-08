@@ -5,13 +5,10 @@
 # client-predicted so a frame or two may still slip through (a full first-person removal needs a client mod).
 #
 # CONTROLS (fixed):
-#   LEFT-click       = fire ONE shot per click. Every gun. (Tap-fire / semi.)
-#   RIGHT-click HOLD = full-AUTO on an auto-mode gun: hold to fire continuously at the gun's fire-rate,
-#                      release to stop. This is the ONLY way to get real hold-to-fire: Minecraft exposes a
-#                      HELD-button state only for the right/use button, never for left-click on air. The gun
-#                      uses a hidden consumable component to detect the hold (/guns holddebug to verify it).
-#   RIGHT-click      = on an EMPTY gun, reloads; on a loaded SEMI gun, flips to auto (or use /guns firemode).
-# Set a gun to "auto" (guns.yml fire-modes: "semi,auto", then /guns firemode) for right-hold auto to work.
+#   LEFT-click  = FIRE. Every gun, one shot per click. (Full-auto guns: tap fast - Minecraft gives the
+#                 server no held-button state for left-click on air, so clicking is the trigger.)
+#   RIGHT-click = RELOAD. Never fires. A timer reload plays the reload sound/animation and loads a fresh
+#                 magazine - no arrow/"round" item is ever put in your inventory.
 fire-button: left
 
 

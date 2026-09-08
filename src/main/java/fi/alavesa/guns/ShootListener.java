@@ -392,6 +392,7 @@ public final class ShootListener implements Listener {
         Player p = event.getPlayer();
         clearFovRecoil(p);
         purgeSpeedResidue(p);
+        purgeStrayRounds(p);   // remove any "round" arrow leaked by an older build's reload
         // Clear a stuck aim-slowness (the ADS Slowness IV lasts an hour; if a player crashed while
         // aiming it saved to their data and would slow them to a crawl forever). Any legitimate area
         // slowness is re-applied within a second, so this is safe.
@@ -534,22 +535,13 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (left) {
             event.setCancelled(true);            // no melee/block-break with a gun
-            fireByMode(player, gun, item);       // LEFT = one shot per click, EVERY gun; fire-rate gated
+            fireByMode(player, gun, item);       // LEFT = fire, EVERY gun (semi and auto); fire-rate gated
             return;
         }
-        // RIGHT click.
+        // RIGHT click = RELOAD only. A gun NEVER fires on right-click.
         if (gun.isSpyglass()) return;            // spyglass keeps the vanilla scope zoom
-        if (registry.ammoOf(item) <= 0) { showEmptyModel(player, item, gun); lendArrowFor(player); return; }  // reload
-        if ("auto".equals(registry.fireModeOf(item, gun))) {
-            // AUTO: HOLDING right-click keeps the gun's consumable "using" state alive (isHandRaised); the
-            // per-tick autoFireTick() fires at the fire-rate for as long as it's held, and releasing ends the
-            // use so firing stops. Do NOT cancel the interact or the use-state never starts. Switch back to
-            // semi with /guns firemode.
-            return;
-        }
-        // Loaded SEMI on right-click: cycle the fire mode (a quick way to flip semi -> auto).
-        event.setCancelled(true);
-        toggleMode(player, gun, item);
+        event.setCancelled(true);                // never let the crossbow charge or loose a bolt
+        startReload(player, gun, item);
     }
 
     /** While seated in a vehicle (a car) your view is filled by the car model, so
@@ -600,42 +592,49 @@ public final class ShootListener implements Listener {
         shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
     }
 
-    /** Players who ran /guns holddebug: while on, they get a per-tick actionbar showing the raw right-hold
-     *  state, so we can see whether the consumable use-state actually stays raised while right is held. */
-    public final java.util.Set<UUID> holdDebug = ConcurrentHashMap.newKeySet();
+    /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
+     *  first-person reload frames, sounds, then the magazine is loaded. Consumes a magazine at completion
+     *  (partial rounds are discarded, standard). Aborts cleanly if the player switches away mid-reload. */
+    private void startReload(Player player, Gun gun, ItemStack item) {
+        UUID id = player.getUniqueId();
+        if (reloading.contains(id)) return;                              // already reloading
+        if (registry.ammoOf(item) >= gun.magazine()) return;            // already full
+        if (gun.requiresMag() && findMagSlot(player, gun.magId()) == -1) { noMagazine(player); return; }
 
-    /** FULL-AUTO. Called every tick from GunsPlugin. Minecraft only reports a HELD button state for the
-     *  use/right button (left-click on air is a single edge, never a held state), so auto fire is driven by
-     *  the RIGHT button: each gun carries a consumable component, and holding right-click keeps it in the
-     *  "using" state (isHandRaised) - no eating animation, 3600s duration so it never completes. While an
-     *  auto gun is being used this way we fire at the gun's fire-rate (shoot() caps the cadence); releasing
-     *  right-click ends the use so firing stops instantly. */
-    public void autoFireTick() {
-        for (Player p : plugin.getServer().getOnlinePlayers()) {
-            boolean raised = p.isHandRaised();
-            ItemStack active = raised ? p.getActiveItem() : null;
-            Gun activeGun = registry.gunOf(active);
-            if (holdDebug.contains(p.getUniqueId())) {
-                ItemStack held = p.getInventory().getItemInMainHand();
-                Gun heldGun = registry.gunOf(held);
-                p.sendActionBar(net.kyori.adventure.text.Component.text(
-                    "hold raised=" + raised
-                    + " active=" + (activeGun != null ? activeGun.id() : (active != null ? active.getType() : "-"))
-                    + " mode=" + (heldGun != null ? registry.fireModeOf(held, heldGun) : "-")));
-            }
-            if (!raised || activeGun == null) continue;                 // right not held / not using a gun
-            if (!"auto".equals(registry.fireModeOf(active, activeGun))) continue;
-            if (registry.ammoOf(active) <= 0) continue;                 // empty: right-click reloads instead
-            if (reloading.contains(p.getUniqueId())) continue;
-            shoot(p, activeGun, active);                                // fire-rate gated -> continuous auto
-        }
+        reloading.add(id);
+        registry.setAmmo(item, 0);                                      // empty while reloading (discards partial)
+        unchargeGun(item);
+        showEmptyModel(player, item, gun);
+        playFirstPersonClip(player, gun, "_reload");
+        player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_start", 1f, 1.1f);
+        suppressReticle(player);
+        ammoBar.update(player, gun, 0, registry.fireModeOf(item, gun), reserveRounds(player, gun));
+
+        int ticks = Math.max(1, gun.reloadTicks());
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            reloading.remove(id);
+            if (!player.isOnline()) return;
+            ItemStack now = player.getInventory().getItemInMainHand();
+            Gun held = registry.gunOf(now);
+            if (held == null || !held.id().equals(gun.id())) return;     // switched away - abort, no mag spent
+            int load = drawReload(player, held);
+            if (load < 0) { noMagazine(player); return; }
+            registry.setAmmo(now, load);
+            repairPose(now);                                             // charged = the loaded model
+            showNormalModel(player, now, held);
+            playFirstPersonClip(player, held, "_reload");
+            player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
+            ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
+        }, ticks);
     }
 
-    /** The consumable component exists ONLY to expose the held-right state for auto fire - the gun must
-     *  never actually be eaten. Cancel any consume so the item is never destroyed. */
-    @EventHandler
-    public void onConsume(org.bukkit.event.player.PlayerItemConsumeEvent event) {
-        if (registry.gunOf(event.getItem()) != null) event.setCancelled(true);
+    /** Remove any stray lent ROUND items from a player's inventory - the timer reload never lends one, so
+     *  a round can only be a leftover from an older build's interrupted crossbow-pull reload. */
+    public void purgeStrayRounds(Player player) {
+        ItemStack[] contents = player.getInventory().getContents();
+        for (int i = 0; i < contents.length; i++) {
+            if (registry.isRound(contents[i])) player.getInventory().setItem(i, null);
+        }
     }
 
     /** Left-click cycles the held gun's fire mode (only if it offers more than
@@ -691,19 +690,18 @@ public final class ShootListener implements Listener {
         if (gun == null) return;
         if (registry.ammoOf(item) <= 0) {
             // nothing loaded to eject - just remind them how to reload
-            Msg.actionbar(player, Component.text("Empty - hold right-click to reload", NamedTextColor.YELLOW));
+            Msg.actionbar(player, Component.text("Empty - right-click to reload", NamedTextColor.YELLOW));
             suppressReticle(player);
             return;
         }
-        // Eject just empties the chamber and readies the hold-right-click reload.
+        // Eject just empties the chamber and readies the right-click reload.
         // Rounds aren't banked (mags are spent by FIRING now), so eject/reload can't
         // be farmed for free ammo.
         registry.setAmmo(item, 0);
-        unchargeGun(item);                 // uncharged crossbow -> right-click plays the reload pull
+        unchargeGun(item);
         showEmptyModel(player, item, gun); // the empty/no-mag model
-        lendArrowFor(player);              // so the client animates the pull
         player.getWorld().playSound(player.getLocation(), "minecraft:block.iron_trapdoor.open", 0.7f, 1.6f);
-        Msg.actionbar(player, Component.text("Magazine out - hold right-click to reload", NamedTextColor.YELLOW));
+        Msg.actionbar(player, Component.text("Magazine out - right-click to reload", NamedTextColor.YELLOW));
         suppressReticle(player);
         ammoBar.update(player, gun, 0, registry.fireModeOf(item, gun), reserveRounds(player, gun));
     }
@@ -717,35 +715,11 @@ public final class ShootListener implements Listener {
      */
     @EventHandler
     public void onCrossbowLoad(EntityLoadCrossbowEvent event) {
-        if (!(event.getEntity() instanceof Player player)) return;
-        ItemStack item = event.getCrossbow();
-        Gun gun = registry.gunOf(item);
-        if (gun == null) return;
-        // A full gun is charged and can't be re-loaded; only an empty one reloads.
-        if (registry.ammoOf(item) > 0) { event.setCancelled(true); return; }
-        // Draw the next load: a fresh full mag if we have one, else the banked
-        // leftover pool - and nothing at all means refuse the reload.
-        int load = drawReload(player, gun);
-        if (load < 0) {
+        // Reloading is a server-side TIMER now (see startReload) - guns never load via the vanilla crossbow
+        // pull, so no real arrow / "round" is ever needed. Refuse any gun crossbow-load outright.
+        if (event.getEntity() instanceof Player && registry.gunOf(event.getCrossbow()) != null) {
             event.setCancelled(true);
-            noMagazine(player);
-            return;
         }
-        event.setConsumeItem(false);   // magazines feed the gun, never real arrows
-        reclaimLentArrow(player);
-        // Apply the refill next tick, after vanilla has finished charging the
-        // crossbow (so the charged state - our "full gun" - and the ammo agree).
-        plugin.getServer().getScheduler().runTask(plugin, () -> {
-            if (!player.isOnline()) return;
-            ItemStack now = player.getInventory().getItemInMainHand();
-            Gun held = registry.gunOf(now);
-            if (held == null || !held.id().equals(gun.id())) return;
-            registry.setAmmo(now, load);
-            showNormalModel(player, now, held);
-            playFirstPersonClip(player, held, "_reload");        // first-person item reload frames (fp-anim)
-            player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_end", 1f, 1.2f);
-            ammoBar.update(player, held, load, registry.fireModeOf(now, held), reserveRounds(player, held));
-        });
     }
 
     /** First inventory slot holding a mag of this type, or -1. */
@@ -860,13 +834,11 @@ public final class ShootListener implements Listener {
         // and the gun cannot bob. No setItemInMainHand here on purpose.
         registry.setAmmo(item, ammo - 1);
         if (ammo - 1 <= 0) {
-            // that was the last round: uncharge so holding right-click plays the
-            // crossbow reload animation, show the empty-mag model, and lend a round
-            // so the client animates the pull.
+            // that was the last round: uncharge (so the gun can't loose a bolt) and show the empty model.
+            // Reloading is the timer in startReload - no lent "round" arrow needed.
             unchargeGun(item);
             showEmptyModel(player, item, gun);
-            lendArrowFor(player);
-            Msg.actionbar(player, Component.text("Empty - hold right-click to reload", NamedTextColor.YELLOW));
+            Msg.actionbar(player, Component.text("Empty - right-click to reload", NamedTextColor.YELLOW));
             suppressReticle(player);
         }
         // NOTE: no hand-dip on fire - the gun used to visibly drop on each shot; the
