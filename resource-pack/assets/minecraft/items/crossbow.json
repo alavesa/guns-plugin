@@ -19,6 +19,54 @@
             }
           },
           {
+            "when": "gun_vector",
+            "model": {
+              "type": "minecraft:select",
+              "property": "minecraft:display_context",
+              "cases": [
+                { "when": "firstperson_righthand", "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } },
+                { "when": "firstperson_lefthand",  "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } }
+              ],
+              "fallback": { "type": "minecraft:model", "model": "guns:item/gun_vector" }
+            }
+          },
+          {
+            "when": "gun_vector_aim",
+            "model": {
+              "type": "minecraft:select",
+              "property": "minecraft:display_context",
+              "cases": [
+                { "when": "firstperson_righthand", "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } },
+                { "when": "firstperson_lefthand",  "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } }
+              ],
+              "fallback": { "type": "minecraft:model", "model": "guns:item/gun_vector" }
+            }
+          },
+          {
+            "when": "gun_vector_recoil",
+            "model": {
+              "type": "minecraft:select",
+              "property": "minecraft:display_context",
+              "cases": [
+                { "when": "firstperson_righthand", "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } },
+                { "when": "firstperson_lefthand",  "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } }
+              ],
+              "fallback": { "type": "minecraft:model", "model": "guns:item/gun_vector" }
+            }
+          },
+          {
+            "when": "gun_vector_emptymag",
+            "model": {
+              "type": "minecraft:select",
+              "property": "minecraft:display_context",
+              "cases": [
+                { "when": "firstperson_righthand", "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } },
+                { "when": "firstperson_lefthand",  "model": { "type": "minecraft:model", "model": "guns:item/gun_vector_fp" } }
+              ],
+              "fallback": { "type": "minecraft:model", "model": "guns:item/gun_vector" }
+            }
+          },
+          {
             "when": "gun_rifle",
             "model": {
               "type": "minecraft:model",

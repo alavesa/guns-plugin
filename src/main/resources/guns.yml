@@ -79,6 +79,25 @@ guns:
     effect-level: 1
     ricochet: 0
     mag: mag_pistol
+  vector:
+    name: "&fKriss Vector"
+    model: gun_vector
+    damage: 3.5
+    fire-rate: 9.0          # .45 ACP SMG - very fast (tap fast for full-auto feel)
+    range: 40
+    magazine: 25            # authentic 25-round Glock .45 magazine
+    reload-ticks: 30
+    sound: "minecraft:block.bamboo.hit"
+    sound-pitch: 1.9
+    effect: none
+    effect-ticks: 60
+    effect-level: 1
+    ricochet: 0
+    fire-modes: "semi,auto"
+    spread: 2.0             # small hip-fire spread; tightens when aiming (crouch)
+    aim-spread: 0.4
+    recoil: 0.6
+    mag: mag_smg
 
 grenades:
   frag:
