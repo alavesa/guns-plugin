@@ -93,7 +93,7 @@ guns:
     effect-ticks: 60
     effect-level: 1
     ricochet: 0
-    fire-modes: "semi,auto"
+    fire-modes: "auto"      # FIXED full-auto (each gun is semi OR auto, no in-game switching)
     spread: 2.0             # small hip-fire spread; tightens when aiming (crouch)
     aim-spread: 0.4
     recoil: 0.6

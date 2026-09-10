@@ -221,9 +221,13 @@ public final class ShootListener implements Listener {
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             ItemStack held = player.getInventory().getItem(slot);
             Gun gun = registry.gunOf(held);
-            if (gun == null || isAiming(player) || registry.ammoOf(held) <= 0) return;  // aim/empty own the model
-            int[] a = clipFrames(gun, "equip");   // per-gun equip animation, else global fp-anim.equip
-            if (a[0] <= 0) return;                 // no equip clip authored for this gun
+            if (gun == null || isAiming(player)) return;
+            // Default EQUIP motion: a quick raise/dip so drawing a gun always animates, even with no
+            // custom frames authored (the client-only empty-hand-for-one-tick trick).
+            dipHand(player);
+            player.getWorld().playSound(player.getLocation(), "minecraft:item.crossbow.loading_middle", 0.6f, 1.6f);
+            int[] a = clipFrames(gun, "equip");   // per-gun equip frames (guns.yml <gun>.anim.equip), else global
+            if (a[0] <= 0 || registry.ammoOf(held) <= 0) return;   // no authored frames (or empty): dip only
             playModelClip(player, gun, slot, "_equip", a[0], a[1]);
         });
     }
@@ -368,6 +372,10 @@ public final class ShootListener implements Listener {
     @org.bukkit.event.EventHandler
     public void onGunDrop(org.bukkit.event.player.PlayerDropItemEvent event) {
         ItemStack dropped = event.getItemDrop().getItemStack();
+        if (registry.isOffhandBlocker(dropped)) {   // the off-hand blocker is UNDROPPABLE
+            event.setCancelled(true);
+            return;
+        }
         if (registry.gunOf(dropped) == null) return;
         if (applyModelSuffix(dropped, false)) event.getItemDrop().setItemStack(dropped);
         stopAiming(event.getPlayer());
@@ -384,6 +392,9 @@ public final class ShootListener implements Listener {
         }
         reclaimLentArrow(player);
         clearFovRecoil(player);   // never leave a recoil speed-dip on a leaving player
+        if (registry.isOffhandBlocker(player.getInventory().getItemInOffHand())) {
+            player.getInventory().setItemInOffHand(null);   // don't save the blocker to disk
+        }
     }
 
     /** Strip any leftover recoil speed-dip on join (crash residue), so nobody logs in slowed. */
@@ -535,17 +546,14 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (left) {
             event.setCancelled(true);            // no melee/block-break with a gun
-            if ("auto".equals(registry.fireModeOf(item, gun))) {
-                toggleAutoFire(player, gun, item);   // AUTO: tap to START continuous fire, tap again to STOP
-            } else {
-                fireByMode(player, gun, item);       // SEMI: one shot per click
-            }
+            // Firing is normally driven by the ProtocolLib swing listener (swingFire) so holding LEFT can
+            // spray an auto gun. Only fall back to firing here when ProtocolLib is absent.
+            if (!swingFireActive) fireByMode(player, gun, item);   // per-click fallback (no ProtocolLib)
             return;
         }
-        // RIGHT click = RELOAD only. A gun NEVER fires on right-click.
-        if (gun.isSpyglass()) return;            // spyglass keeps the vanilla scope zoom
+        // RIGHT click does nothing for guns now: firing is LEFT, reloading is F. (Spyglass keeps its scope.)
+        if (gun.isSpyglass()) return;
         event.setCancelled(true);                // never let the crossbow charge or loose a bolt
-        startReload(player, gun, item);
     }
 
     /** While seated in a vehicle (a car) your view is filled by the car model, so
@@ -596,49 +604,27 @@ public final class ShootListener implements Listener {
         shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
     }
 
-    /** Players whose AUTO gun is currently spraying (toggled on by a left-click). */
-    private final java.util.Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
-    /** Debounce so one physical click can't register as two toggles. */
-    private final Map<UUID, Long> autoToggleCd = new ConcurrentHashMap<>();
+    /** True once the ProtocolLib swing listener is live - then firing is driven by swing packets and
+     *  onShoot must NOT also fire (that would double the first shot). */
+    public volatile boolean swingFireActive = false;
+    /** Last arm-swing time per player, to tell a fresh click from a held-down repeat (for semi guns). */
+    private final Map<UUID, Long> lastSwing = new ConcurrentHashMap<>();
 
-    /** AUTO-mode LEFT-click TOGGLE. True hold-to-fire is impossible on the left button (Minecraft never
-     *  tells the server the left button is HELD when you click air - it only repeats the swing while mining
-     *  a block), so full-auto on the left is a toggle: tap to START continuous fire, tap again to STOP. It
-     *  also stops on its own when the magazine runs dry, the gun is holstered/switched, or a reload starts.
-     *  autoFireTick() (per tick) does the actual firing at the gun's fire-rate. */
-    private void toggleAutoFire(Player player, Gun gun, ItemStack item) {
-        UUID id = player.getUniqueId();
+    /** CounterMine-style firing, called on the MAIN thread for every inbound arm-swing while a player holds
+     *  a gun. Holding LEFT-click makes the client stream swing packets, so:
+     *    - AUTO gun: fire on EVERY swing (fire-rate gated) -> hold-to-spray, releasing stops instantly.
+     *    - SEMI gun: fire only on a FRESH swing (a gap since the last one = a new click) -> one shot per
+     *      click; holding a semi gun does not spray. */
+    public void swingFire(Player player) {
+        ItemStack item = player.getInventory().getItemInMainHand();
+        Gun gun = registry.gunOf(item);
+        if (gun == null) return;
+        if (reloading.contains(player.getUniqueId())) return;
         long now = System.currentTimeMillis();
-        Long cd = autoToggleCd.get(id);
-        if (cd != null && now - cd < 250) return;      // one click = one toggle
-        autoToggleCd.put(id, now);
-        if (autoFiring.remove(id)) {                   // was ON -> turn OFF
-            Msg.actionbar(player, Component.text("Auto: OFF", NamedTextColor.GRAY));
-            return;
-        }
-        if (reloading.contains(id)) return;
-        if (registry.ammoOf(item) <= 0) { shoot(player, gun, item); return; }  // empty click = the dry-fire feedback
-        autoFiring.add(id);                            // turn ON, fire the first round immediately
-        shoot(player, gun, item);
-    }
-
-    /** Per-tick: fire the guns of everyone whose AUTO spray is toggled on. Stops (drops them from the set)
-     *  the moment they no longer hold that loaded auto gun, or a reload begins. */
-    public void autoFireTick() {
-        if (autoFiring.isEmpty()) return;
-        for (java.util.Iterator<UUID> it = autoFiring.iterator(); it.hasNext(); ) {
-            UUID id = it.next();
-            Player p = plugin.getServer().getPlayer(id);
-            if (p == null || !p.isOnline()) { it.remove(); continue; }
-            ItemStack held = p.getInventory().getItemInMainHand();
-            Gun g = registry.gunOf(held);
-            if (g == null || !"auto".equals(registry.fireModeOf(held, g))
-                || registry.ammoOf(held) <= 0 || reloading.contains(id)) {
-                it.remove();                            // switched away / empty / reloading -> stop
-                continue;
-            }
-            shoot(p, g, held);                          // fire-rate gated -> continuous spray
-        }
+        Long last = lastSwing.put(player.getUniqueId(), now);
+        boolean auto = "auto".equals(registry.fireModeOf(item, gun));
+        if (!auto && last != null && now - last < 250) return;   // semi: ignore held-down repeat swings
+        shoot(player, gun, item);                                 // fire-rate gated
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
@@ -728,31 +714,20 @@ public final class ShootListener implements Listener {
      * crossbow animation and load a fresh mag. The swap is always cancelled so a
      * gun never lands in the off-hand.
      */
+    /** F (swap-hands) = RELOAD. Pressing F reloads the held gun (the immersive timer reload in startReload);
+     *  the swap itself is always cancelled so a gun / the off-hand blocker never lands in the off-hand. */
     @EventHandler
-    public void onEjectMag(PlayerSwapHandItemsEvent event) {
+    public void onReloadKey(PlayerSwapHandItemsEvent event) {
         Player player = event.getPlayer();
         ItemStack item = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
-        if (gun != null || registry.gunOf(event.getOffHandItem()) != null) {
-            event.setCancelled(true);   // never swap a gun to the off-hand
+        // Cancel the swap for guns AND for our off-hand blocker, so neither is ever moved by F.
+        if (gun != null || registry.gunOf(event.getOffHandItem()) != null
+            || registry.isOffhandBlocker(event.getMainHandItem()) || registry.isOffhandBlocker(event.getOffHandItem())) {
+            event.setCancelled(true);
         }
         if (gun == null) return;
-        if (registry.ammoOf(item) <= 0) {
-            // nothing loaded to eject - just remind them how to reload
-            Msg.actionbar(player, Component.text("Empty - right-click to reload", NamedTextColor.YELLOW));
-            suppressReticle(player);
-            return;
-        }
-        // Eject just empties the chamber and readies the right-click reload.
-        // Rounds aren't banked (mags are spent by FIRING now), so eject/reload can't
-        // be farmed for free ammo.
-        registry.setAmmo(item, 0);
-        unchargeGun(item);
-        showEmptyModel(player, item, gun); // the empty/no-mag model
-        player.getWorld().playSound(player.getLocation(), "minecraft:block.iron_trapdoor.open", 0.7f, 1.6f);
-        Msg.actionbar(player, Component.text("Magazine out - right-click to reload", NamedTextColor.YELLOW));
-        suppressReticle(player);
-        ammoBar.update(player, gun, 0, registry.fireModeOf(item, gun), reserveRounds(player, gun));
+        startReload(player, gun, item);   // F = reload
     }
 
     /**

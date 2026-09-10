@@ -58,6 +58,7 @@ public final class GunRegistry {
     private final NamespacedKey fireModeKey;
     private final NamespacedKey instanceKey;
     private final NamespacedKey roundKey;
+    private final NamespacedKey offhandKey = new NamespacedKey("guns", "offhand_blocker");
     private final NamespacedKey vestTierKey;
     private final NamespacedKey vestProtKey;
     private final NamespacedKey vestHitsKey;
@@ -354,18 +355,34 @@ public final class GunRegistry {
             && item.getItemMeta().getPersistentDataContainer().has(roundKey, PersistentDataType.BYTE);
     }
 
-    /** The gun item's selected fire mode, defaulting to the gun's first offered
-     *  mode if none is stamped or the stamped one is no longer offered. */
+    /** Each gun now has ONE FIXED fire mode from its config (semi OR auto) - there is no in-game
+     *  switching any more, so we always return the gun's configured mode and ignore any old per-item stamp. */
     public String fireModeOf(ItemStack item, Gun gun) {
-        if (item == null || !item.hasItemMeta()) return gun.defaultMode();
-        String m = item.getItemMeta().getPersistentDataContainer().get(fireModeKey, PersistentDataType.STRING);
-        return (m != null && gun.hasMode(m)) ? m : gun.defaultMode();
+        return gun.defaultMode();
     }
 
     public void setFireMode(ItemStack item, String mode) {
         var meta = item.getItemMeta();
         meta.getPersistentDataContainer().set(fireModeKey, PersistentDataType.STRING, mode);
         item.setItemMeta(meta);
+    }
+
+    /** The invisible OFF-HAND blocker placed while a player holds a gun (CounterMine-style). It occupies
+     *  the off-hand with a tooltip-less, tagged marker; it is undroppable and never swaps into the main
+     *  hand. Uses a structure void (visually near-invisible). */
+    public ItemStack buildOffhandBlocker() {
+        ItemStack it = new ItemStack(Material.STRUCTURE_VOID);
+        var meta = it.getItemMeta();
+        meta.getPersistentDataContainer().set(offhandKey, PersistentDataType.BYTE, (byte) 1);
+        meta.displayName(net.kyori.adventure.text.Component.text(" "));
+        try { meta.setHideTooltip(true); } catch (Throwable ignored) { }   // 1.20.5+: no hover tooltip
+        it.setItemMeta(meta);
+        return it;
+    }
+
+    public boolean isOffhandBlocker(ItemStack it) {
+        return it != null && it.hasItemMeta()
+            && it.getItemMeta().getPersistentDataContainer().has(offhandKey, PersistentDataType.BYTE);
     }
 
     public NamespacedKey grenadeKey() { return grenadeKey; }
@@ -654,7 +671,7 @@ public final class GunRegistry {
             yaml.set("guns.vector.reload-ticks", 30);
             yaml.set("guns.vector.sound", "minecraft:block.bamboo.hit");
             yaml.set("guns.vector.sound-pitch", 1.9);
-            yaml.set("guns.vector.fire-modes", "semi,auto");
+            yaml.set("guns.vector.fire-modes", "auto");
             yaml.set("guns.vector.spread", 2.0);
             yaml.set("guns.vector.aim-spread", 0.4);
             yaml.set("guns.vector.recoil", 0.6);
@@ -668,6 +685,26 @@ public final class GunRegistry {
             plugin.getLogger().info("Added the Kriss Vector to guns.yml (delete it or set vector-offered if unwanted).");
             load();
             return;
+        }
+        // One-time: fire-mode switching was removed - each gun is now a SINGLE fixed mode. Collapse any
+        // "semi,auto" style multi-mode into one (prefer auto if offered) so old configs behave predictably.
+        if (yaml.getConfigurationSection("guns") != null && !yaml.getBoolean("modes-collapsed", false)) {
+            boolean changed = false;
+            for (String key : yaml.getConfigurationSection("guns").getKeys(false)) {
+                String fm = yaml.getString("guns." + key + ".fire-modes", "");
+                if (fm.contains(",")) {
+                    yaml.set("guns." + key + ".fire-modes", fm.toLowerCase().contains("auto") ? "auto" : "semi");
+                    changed = true;
+                }
+            }
+            yaml.set("modes-collapsed", true);
+            try { yaml.save(file); } catch (java.io.IOException e) {
+                plugin.getLogger().severe("Could not save guns.yml: " + e.getMessage()); }
+            if (changed) {
+                plugin.getLogger().info("Collapsed multi-mode guns to a single fixed fire mode.");
+                load();
+                return;
+            }
         }
         ConfigurationSection groot = yaml.getConfigurationSection("grenades");
         if (groot != null) {

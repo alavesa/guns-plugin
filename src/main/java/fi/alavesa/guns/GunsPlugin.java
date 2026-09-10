@@ -45,7 +45,6 @@ public final class GunsPlugin extends JavaPlugin {
         shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
-        getServer().getScheduler().runTaskTimer(this, shootListener::autoFireTick, 1L, 1L);   // full-auto toggle spray
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
@@ -58,7 +57,7 @@ public final class GunsPlugin extends JavaPlugin {
         // the GunSwingSuppressor class is only linked when ProtocolLib is installed.
         if (getConfig().getBoolean("hide-swing-protocollib", true)
             && getServer().getPluginManager().getPlugin("ProtocolLib") != null) {
-            GunSwingSuppressor.register(this, registry);
+            GunSwingSuppressor.register(this, registry, shootListener);
         }
 
         // Ammo boss bar + the swing-suppression effects, polled every 5 ticks. attack_speed is a
@@ -86,6 +85,7 @@ public final class GunsPlugin extends JavaPlugin {
                         attr.removeModifier(atkKey);
                     }
                 }
+                var offhand = player.getInventory().getItemInOffHand();
                 if (holdingGun) {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
@@ -95,6 +95,11 @@ public final class GunsPlugin extends JavaPlugin {
                     // invisibility. Hidden (no ambient/particles/icon), re-applied to stay effectively infinite.
                     if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(
                         org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 40, 255, false, false, false));
+                    // CounterMine-style off-hand blocker: occupy an EMPTY off-hand with the invisible marker
+                    // (never overwrite the player's own off-hand item like a totem/shield).
+                    if (offhand == null || offhand.getType().isAir()) {
+                        player.getInventory().setItemInOffHand(registry.buildOffhandBlocker());
+                    }
                 } else {
                     ammoBar.hide(player);
                     // Clear ONLY our own high-amplifier fatigue when the gun is holstered (don't touch a
@@ -102,6 +107,8 @@ public final class GunsPlugin extends JavaPlugin {
                     var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
                     if (mf != null && mf.getAmplifier() == 255)
                         player.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
+                    // Take the off-hand blocker back when the gun is put away.
+                    if (registry.isOffhandBlocker(offhand)) player.getInventory().setItemInOffHand(null);
                 }
             }
         }, 20L, 5L);
@@ -422,23 +429,7 @@ public final class GunsPlugin extends JavaPlugin {
                         NamedTextColor.GOLD));
                     return true;
                 }
-                case "firemode", "mode" -> {
-                    if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
-                    org.bukkit.inventory.ItemStack held = player.getInventory().getItemInMainHand();
-                    Gun gun = registry.gunOf(held);
-                    if (gun == null) return error(sender, "Hold a gun to switch its fire mode.");
-                    var modes = gun.modes();
-                    if (modes.size() < 2) {
-                        return error(sender, "This gun has only one fire mode (" + modes.get(0).toUpperCase() + ").");
-                    }
-                    String current = registry.fireModeOf(held, gun);
-                    String next = modes.get((modes.indexOf(current) + 1) % modes.size());
-                    registry.setFireMode(held, next);
-                    player.getInventory().setItemInMainHand(held);
-                    sender.sendMessage(Component.text("Fire mode: " + next.toUpperCase(), NamedTextColor.GOLD));
-                    player.playSound(player.getLocation(), "minecraft:block.lever.click", 0.7f, 1.4f);
-                    return true;
-                }
+                // /guns firemode was removed - each gun now has ONE fixed mode (semi OR auto) set in guns.yml.
                 case "swingdebug", "swing" -> {
                     if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
                     var held = player.getInventory().getItemInMainHand();
@@ -482,7 +473,7 @@ public final class GunsPlugin extends JavaPlugin {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "firemode", "armor",
+            case 1 -> filter(Stream.of("list", "models", "barrel", "give", "create", "edit", "remove", "reload", "armor",
                 "attachments", "giveattachment", "attach", "detach", "swingdebug", "anim"), args[0]);
             case 2 -> {
                 if (args[0].equalsIgnoreCase("giveattachment") || args[0].equalsIgnoreCase("attach")

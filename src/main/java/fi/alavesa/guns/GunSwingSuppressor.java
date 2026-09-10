@@ -29,7 +29,7 @@ final class GunSwingSuppressor {
 
     private GunSwingSuppressor() { }
 
-    static void register(Plugin plugin, GunRegistry registry) {
+    static void register(Plugin plugin, GunRegistry registry, ShootListener shootListener) {
         ProtocolManager protocol = ProtocolLibrary.getProtocolManager();
         protocol.addPacketListener(new PacketAdapter(plugin, ListenerPriority.NORMAL,
                 PacketType.Play.Server.ANIMATION) {     // server -> other clients "entity swung"
@@ -49,6 +49,21 @@ final class GunSwingSuppressor {
                 }
             }
         });
-        plugin.getLogger().info("ProtocolLib detected - gun arm-swing hidden from other players (third-person).");
+
+        // CounterMine-style FULL-AUTO: the client streams inbound arm-swing packets while LEFT-click is held.
+        // We LISTEN (never cancel - the server derives the fire interact from this very packet) and fire the
+        // gun on each swing (hopped to the main thread). Holding an auto gun sprays; releasing stops at once.
+        protocol.addPacketListener(new PacketAdapter(plugin, ListenerPriority.MONITOR,
+                PacketType.Play.Client.ARM_ANIMATION) {     // client -> server "I swung my arm" (left-click)
+            @Override
+            public void onPacketReceiving(PacketEvent event) {
+                Player player = event.getPlayer();
+                if (player == null) return;
+                if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) return;
+                plugin.getServer().getScheduler().runTask(plugin, () -> shootListener.swingFire(player));
+            }
+        });
+        shootListener.swingFireActive = true;
+        plugin.getLogger().info("ProtocolLib detected - gun swing hidden from others + swing-driven full-auto enabled.");
     }
 }
