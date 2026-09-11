@@ -546,9 +546,7 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (left) {
             event.setCancelled(true);            // no melee/block-break with a gun
-            // Firing is normally driven by the ProtocolLib swing listener (swingFire) so holding LEFT can
-            // spray an auto gun. Only fall back to firing here when ProtocolLib is absent.
-            if (!swingFireActive) fireByMode(player, gun, item);   // per-click fallback (no ProtocolLib)
+            swingFire(player);                   // AUTO = press toggles spray; SEMI = one shot per press
             return;
         }
         // RIGHT click does nothing for guns now: firing is LEFT, reloading is F. (Spyglass keeps its scope.)
@@ -604,27 +602,60 @@ public final class ShootListener implements Listener {
         shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
     }
 
-    /** True once the ProtocolLib swing listener is live - then firing is driven by swing packets and
-     *  onShoot must NOT also fire (that would double the first shot). */
-    public volatile boolean swingFireActive = false;
-    /** Last arm-swing time per player, to tell a fresh click from a held-down repeat (for semi guns). */
+    /** Last left-click time per player, to ignore any stray repeat (for semi guns). */
     private final Map<UUID, Long> lastSwing = new ConcurrentHashMap<>();
+    /** Players whose AUTO gun is currently spraying. */
+    private final java.util.Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Long> autoToggleCd = new ConcurrentHashMap<>();
 
-    /** CounterMine-style firing, called on the MAIN thread for every inbound arm-swing while a player holds
-     *  a gun. Holding LEFT-click makes the client stream swing packets, so:
-     *    - AUTO gun: fire on EVERY swing (fire-rate gated) -> hold-to-spray, releasing stops instantly.
-     *    - SEMI gun: fire only on a FRESH swing (a gap since the last one = a new click) -> one shot per
-     *      click; holding a semi gun does not spray. */
+    /** Called on the MAIN thread for every LEFT-click / arm-swing while a player holds a gun.
+     *
+     *  IMPORTANT LIMIT: Minecraft sends NO repeated or "held" signal for left-click on air - the client
+     *  sends exactly ONE swing per press and nothing on release. So firing purely by how long LEFT is held
+     *  is impossible server-side. Instead:
+     *    - AUTO gun: the swing TOGGLES a continuous spray - press to start firing at the fire-rate, it keeps
+     *      going until the magazine empties or you press again to stop. (Holding the button therefore empties
+     *      the mag; a second click stops early.) autoFireTick() does the per-tick firing.
+     *    - SEMI gun: one shot per press. */
     public void swingFire(Player player) {
         ItemStack item = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
-        if (reloading.contains(player.getUniqueId())) return;
+        UUID id = player.getUniqueId();
+        if (reloading.contains(id)) return;
         long now = System.currentTimeMillis();
-        Long last = lastSwing.put(player.getUniqueId(), now);
-        boolean auto = "auto".equals(registry.fireModeOf(item, gun));
-        if (!auto && last != null && now - last < 250) return;   // semi: ignore held-down repeat swings
-        shoot(player, gun, item);                                 // fire-rate gated
+        if ("auto".equals(registry.fireModeOf(item, gun))) {
+            Long cd = autoToggleCd.get(id);
+            if (cd != null && now - cd < 250) return;      // one press = one toggle
+            autoToggleCd.put(id, now);
+            if (autoFiring.remove(id)) {                   // was spraying -> stop
+                Msg.actionbar(player, Component.text("Auto: OFF", NamedTextColor.GRAY));
+                return;
+            }
+            if (registry.ammoOf(item) <= 0) { shoot(player, gun, item); return; }  // dry-fire feedback
+            autoFiring.add(id);                            // start spraying, fire the first round now
+            shoot(player, gun, item);
+        } else {
+            Long last = lastSwing.put(id, now);
+            if (last != null && now - last < 250) return;  // ignore any repeat swing
+            shoot(player, gun, item);                       // semi: one shot per press
+        }
+    }
+
+    /** Per-tick: fire the guns of everyone whose AUTO spray is on; stops when they no longer hold that
+     *  loaded auto gun or a reload starts. */
+    public void autoFireTick() {
+        if (autoFiring.isEmpty()) return;
+        for (java.util.Iterator<UUID> it = autoFiring.iterator(); it.hasNext(); ) {
+            UUID id = it.next();
+            Player p = plugin.getServer().getPlayer(id);
+            if (p == null || !p.isOnline()) { it.remove(); continue; }
+            ItemStack held = p.getInventory().getItemInMainHand();
+            Gun g = registry.gunOf(held);
+            if (g == null || !"auto".equals(registry.fireModeOf(held, g))
+                || registry.ammoOf(held) <= 0 || reloading.contains(id)) { it.remove(); continue; }
+            shoot(p, g, held);
+        }
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the

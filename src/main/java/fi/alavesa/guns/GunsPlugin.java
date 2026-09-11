@@ -45,6 +45,7 @@ public final class GunsPlugin extends JavaPlugin {
         shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
+        getServer().getScheduler().runTaskTimer(this, shootListener::autoFireTick, 1L, 1L);   // auto spray
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
@@ -57,7 +58,7 @@ public final class GunsPlugin extends JavaPlugin {
         // the GunSwingSuppressor class is only linked when ProtocolLib is installed.
         if (getConfig().getBoolean("hide-swing-protocollib", true)
             && getServer().getPluginManager().getPlugin("ProtocolLib") != null) {
-            GunSwingSuppressor.register(this, registry, shootListener);
+            GunSwingSuppressor.register(this, registry);
         }
 
         // Ammo boss bar + the swing-suppression effects, polled every 5 ticks. attack_speed is a
@@ -85,7 +86,10 @@ public final class GunsPlugin extends JavaPlugin {
                         attr.removeModifier(atkKey);
                     }
                 }
-                var offhand = player.getInventory().getItemInOffHand();
+                // Clean up the old off-hand blocker from any player still carrying one (feature removed).
+                if (registry.isOffhandBlocker(player.getInventory().getItemInOffHand())) {
+                    player.getInventory().setItemInOffHand(null);
+                }
                 if (holdingGun) {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
@@ -95,11 +99,6 @@ public final class GunsPlugin extends JavaPlugin {
                     // invisibility. Hidden (no ambient/particles/icon), re-applied to stay effectively infinite.
                     if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(
                         org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 40, 255, false, false, false));
-                    // CounterMine-style off-hand blocker: occupy an EMPTY off-hand with the invisible marker
-                    // (never overwrite the player's own off-hand item like a totem/shield).
-                    if (offhand == null || offhand.getType().isAir()) {
-                        player.getInventory().setItemInOffHand(registry.buildOffhandBlocker());
-                    }
                 } else {
                     ammoBar.hide(player);
                     // Clear ONLY our own high-amplifier fatigue when the gun is holstered (don't touch a
@@ -107,8 +106,6 @@ public final class GunsPlugin extends JavaPlugin {
                     var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
                     if (mf != null && mf.getAmplifier() == 255)
                         player.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
-                    // Take the off-hand blocker back when the gun is put away.
-                    if (registry.isOffhandBlocker(offhand)) player.getInventory().setItemInOffHand(null);
                 }
             }
         }, 20L, 5L);
