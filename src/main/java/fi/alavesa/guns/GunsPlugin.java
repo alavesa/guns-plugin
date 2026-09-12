@@ -45,6 +45,7 @@ public final class GunsPlugin extends JavaPlugin {
         shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
+        getServer().getScheduler().runTaskTimer(this, shootListener::aimBoxTick, 1L, 1L);   // CounterMine hold-detect box
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes
@@ -110,6 +111,11 @@ public final class GunsPlugin extends JavaPlugin {
 
         getLogger().info("Guns enabled - guns: " + registry.ids() + ", grenades: " + registry.grenadeIds()
             + ", mags: " + registry.magIds());
+    }
+
+    @Override
+    public void onDisable() {
+        if (shootListener != null) shootListener.removeAllAimBoxes();   // don't leave hold-detect boxes behind
     }
 
     @Override

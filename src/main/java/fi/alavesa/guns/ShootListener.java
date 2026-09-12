@@ -633,6 +633,54 @@ public final class ShootListener implements Listener {
         }
     }
 
+    /** CounterMine method: an invisible INTERACTION entity kept in each gun-holder's crosshair. Left-clicks
+     *  (and held left-clicks) land on the box instead of empty air, so the client keeps sending attack/swing
+     *  packets while LEFT is held - the ONLY way the server can see repeated left-clicks. We poll the box's
+     *  last-attack timestamp and fire on every new attack, giving continuous full-auto while held. */
+    private final Map<UUID, org.bukkit.entity.Interaction> aimBox = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> boxAttackSeen = new ConcurrentHashMap<>();
+
+    public void aimBoxTick() {
+        for (Player p : plugin.getServer().getOnlinePlayers()) {
+            UUID id = p.getUniqueId();
+            org.bukkit.entity.Interaction box = aimBox.get(id);
+            Gun gun = registry.gunOf(p.getInventory().getItemInMainHand());
+            if (gun == null || p.isDead() || !p.isValid()) {
+                if (box != null) { box.remove(); aimBox.remove(id); boxAttackSeen.remove(id); }
+                continue;
+            }
+            // Keep the box ~2.2 blocks ahead of the eye, centred on the look ray (interaction position is the
+            // box's bottom-centre, so drop it half its height).
+            org.bukkit.Location eye = p.getEyeLocation();
+            org.bukkit.Location at = eye.clone().add(eye.getDirection().multiply(2.2));
+            at.setY(at.getY() - 1.1);
+            if (box == null || !box.isValid()) {
+                box = p.getWorld().spawn(at, org.bukkit.entity.Interaction.class, e -> {
+                    e.setInteractionWidth(2.2f);
+                    e.setInteractionHeight(2.2f);
+                    e.setResponsive(true);          // record attacks/interacts
+                    e.setPersistent(false);         // never saved to disk
+                });
+                aimBox.put(id, box);
+            } else {
+                box.teleport(at);
+            }
+            var la = box.getLastAttack();           // the most recent left-click on the box
+            if (la != null) {
+                long ts = la.getTimestamp();
+                Long seen = boxAttackSeen.put(id, ts);
+                if (seen != null && ts > seen) swingFire(p);   // a NEW left-click since last tick -> fire
+            }
+        }
+    }
+
+    /** Remove every aim box (plugin disable / reload). */
+    public void removeAllAimBoxes() {
+        for (var b : aimBox.values()) if (b != null && b.isValid()) b.remove();
+        aimBox.clear();
+        boxAttackSeen.clear();
+    }
+
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
      *  first-person reload frames, sounds, then the magazine is loaded. Consumes a magazine at completion
      *  (partial rounds are discarded, standard). Aborts cleanly if the player switches away mid-reload. */
