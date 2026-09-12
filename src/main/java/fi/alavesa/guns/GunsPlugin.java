@@ -66,7 +66,6 @@ public final class GunsPlugin extends JavaPlugin {
         // gun instantly with no re-give; mining fatigue kills mining/swing visuals. Both toggle via config.
         final org.bukkit.NamespacedKey atkKey = new org.bukkit.NamespacedKey(this, "gun_attack_speed");
         getServer().getScheduler().runTaskTimer(this, () -> {
-            boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", true);   // removes the MINING swing (block-click)
             double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // optional attack_speed modifier while a gun is held (auto no longer needs it)
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
@@ -93,15 +92,14 @@ public final class GunsPlugin extends JavaPlugin {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
                     shootListener.normalizeHeldModel(player);   // keep the base model unless states are enabled
-                    // Amplifier 255 = StatesMC's value: breaks the client's block-mining prediction so a
-                    // left-click on a block can't force a full punch, AND stretches the swing duration to
-                    // invisibility. Hidden (no ambient/particles/icon), re-applied to stay effectively infinite.
-                    if (fatigue) player.addPotionEffect(new org.bukkit.potion.PotionEffect(
-                        org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 40, 255, false, false, false));
+                    // Mining-Fatigue-255 is NOT applied any more: amp 255 breaks the client's block-mining
+                    // prediction, and the aim-lock INTERACTION relies on that exact "mining" stream to give
+                    // hold-to-fire full-auto. Actively clear any 255 fatigue left from an older build.
+                    var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
+                    if (mf != null && mf.getAmplifier() == 255)
+                        player.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
                 } else {
                     ammoBar.hide(player);
-                    // Clear ONLY our own high-amplifier fatigue when the gun is holstered (don't touch a
-                    // legitimate weaker fatigue from elsewhere), so it doesn't linger after switching away.
                     var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
                     if (mf != null && mf.getAmplifier() == 255)
                         player.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);

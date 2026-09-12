@@ -633,76 +633,66 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** CounterMine "Method 1" (target-locking): an invisible, invulnerable SLIME is kept right in the
-     *  gun-holder's crosshair. Because there is a living entity under the cursor, holding LEFT-click makes
-     *  the client stream "attack entity" packets (instead of a single air swing) - which arrive as repeated
-     *  EntityDamageByEntityEvent. onAimLockHit cancels the damage and fires the gun on each, so holding LEFT
-     *  = continuous full-auto for as long as the attack packets keep arriving. */
+    /** CounterMine "Method 1" (target-locking) - the CORRECT version, with an INTERACTION entity (NOT a mob).
+     *
+     *  Living mobs (pig/slime/zombie) are throttled by the 1.9 combat client: it needs a fresh distinct click
+     *  per attack, so holding LEFT does NOT stream. The INTERACTION entity (1.19.4) is not a mob - the client
+     *  treats left-clicking it EXACTLY like MINING A BLOCK, so holding LEFT natively streams a continuous flow
+     *  of swing packets while the button is down (no recycling needed). We keep ONE invisible interaction in
+     *  the crosshair; the streamed swings arrive as PlayerArmSwingEvent (onSwing -> swingFire) = continuous
+     *  full-auto, plus getLastAttack as a backup detector. Releasing LEFT ends the stream so firing stops.
+     *
+     *  CRITICAL: the gun's Mining-Fatigue-255 must be OFF (GunsPlugin) - amp 255 breaks the client's
+     *  block-mining prediction, which is the very stream this relies on (the interaction is "mined"). */
     static final String AIMLOCK_TAG = "guns_aimlock";
-    private final Map<UUID, org.bukkit.entity.Slime> aimLock = new ConcurrentHashMap<>();
+    private final Map<UUID, org.bukkit.entity.Interaction> aimLock = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> boxAttackSeen = new ConcurrentHashMap<>();
 
     public void aimBoxTick() {
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             UUID id = p.getUniqueId();
-            org.bukkit.entity.Slime s = aimLock.get(id);
+            org.bukkit.entity.Interaction box = aimLock.get(id);
             Gun gun = registry.gunOf(p.getInventory().getItemInMainHand());
             if (gun == null || p.isDead() || !p.isValid()) {
-                if (s != null) { s.remove(); aimLock.remove(id); }
+                if (box != null) { box.remove(); aimLock.remove(id); boxAttackSeen.remove(id); }
                 continue;
             }
-            // ~1.6 blocks ahead of the eye, on the look ray (its own small hitbox catches the crosshair).
-            org.bukkit.Location at = p.getEyeLocation().add(p.getEyeLocation().getDirection().multiply(1.6));
-            if (s == null || !s.isValid()) {
-                s = spawnAimLock(p, at);
-                aimLock.put(id, s);
+            // Keep it ~2 blocks ahead on the look ray. Interaction position is the box's bottom-centre, so
+            // drop it half its height to centre the hitbox on the crosshair.
+            org.bukkit.Location at = p.getEyeLocation().add(p.getEyeLocation().getDirection().multiply(2.0));
+            at.setY(at.getY() - 1.0);
+            if (box == null || !box.isValid()) {
+                box = spawnAimLock(p, at);
+                aimLock.put(id, box);
             } else {
-                s.teleport(at);
+                box.teleport(at);
+            }
+            // Backup detector: fire on each fresh attack the interaction records (onSwing is the main path).
+            var la = box.getLastAttack();
+            if (la != null) {
+                long ts = la.getTimestamp();
+                Long seen = boxAttackSeen.put(id, ts);
+                if (seen != null && ts > seen) swingFire(p);
             }
         }
     }
 
-    /** Spawn one aim-lock slime. NOT invulnerable (an invulnerable entity blocks EntityDamageByEntityEvent,
-     *  which is exactly the attack signal we need) - instead its damage is cancelled in the handler, and it
-     *  is short-lived (recycled on every hit). Invisible, no AI/gravity/collision, silent, never persisted. */
-    private org.bukkit.entity.Slime spawnAimLock(Player p, org.bukkit.Location at) {
-        return p.getWorld().spawn(at, org.bukkit.entity.Slime.class, e -> {
-            e.setSize(1);
-            e.setInvisible(true);
-            e.setAI(false);
-            e.setGravity(false);
-            e.setSilent(true);
-            e.setCollidable(false);
-            e.setPersistent(false);
-            e.setRemoveWhenFarAway(true);
+    /** One invisible INTERACTION entity in the crosshair (no model, no physics; the client "mines" it). */
+    private org.bukkit.entity.Interaction spawnAimLock(Player p, org.bukkit.Location at) {
+        return p.getWorld().spawn(at, org.bukkit.entity.Interaction.class, e -> {
+            e.setInteractionWidth(2.0f);
+            e.setInteractionHeight(2.0f);
+            e.setResponsive(true);          // record the left-clicks
+            e.setPersistent(false);         // never saved to disk
             e.addScoreboardTag(AIMLOCK_TAG);
         });
     }
 
-    /** A player attacked their aim-lock slime = a left-click landed on it. Cancel the damage, fire the gun,
-     *  then RECYCLE the entity: destroy it so aimBoxTick spawns a BRAND-NEW slime (new entity id) in the
-     *  crosshair next tick. The client, still holding LEFT, auto-attacks the new target - that cycle
-     *  (spawn -> attack -> destroy -> respawn) is what makes holding LEFT stream attacks = full-auto. */
-    @EventHandler(priority = EventPriority.LOWEST)
-    public void onAimLockHit(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
-        if (!event.getEntity().getScoreboardTags().contains(AIMLOCK_TAG)) return;
-        event.setCancelled(true);
-        if (!(event.getDamager() instanceof Player p)) return;
-        swingFire(p);
-        // Instantly recycle: destroy this one and summon a brand-new slime (new entity id) in the crosshair
-        // so the still-held LEFT button auto-attacks the fresh target -> the loop that streams attacks.
-        event.getEntity().remove();
-        if (registry.gunOf(p.getInventory().getItemInMainHand()) != null) {
-            org.bukkit.Location at = p.getEyeLocation().add(p.getEyeLocation().getDirection().multiply(1.6));
-            aimLock.put(p.getUniqueId(), spawnAimLock(p, at));
-        } else {
-            aimLock.remove(p.getUniqueId());
-        }
-    }
-
-    /** Remove every aim-lock slime (plugin disable / reload). */
+    /** Remove every aim-lock interaction (plugin disable / reload). */
     public void removeAllAimBoxes() {
-        for (var s : aimLock.values()) if (s != null && s.isValid()) s.remove();
+        for (var b : aimLock.values()) if (b != null && b.isValid()) b.remove();
         aimLock.clear();
+        boxAttackSeen.clear();
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
