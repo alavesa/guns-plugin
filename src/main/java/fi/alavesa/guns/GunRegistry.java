@@ -590,7 +590,8 @@ public final class GunRegistry {
                     s.getString("casing-dir", "1,0.6,-0.1"),
                     s.getString("casing-pos", "0.3,-0.2,0.35"),
                     (int) clamp(id, "pellets", s.getInt("pellets", 1), 1, 20),
-                    s.getString("bullet-model", "")
+                    s.getString("bullet-model", ""),
+                    clamp(id, "reload-speed", s.getDouble("reload-speed", 0.0), 0, 30)
                 ));
             }
         }
@@ -658,6 +659,7 @@ public final class GunRegistry {
             yaml.set("guns.vector.range", 40);
             yaml.set("guns.vector.magazine", 25);
             yaml.set("guns.vector.reload-ticks", 30);
+            yaml.set("guns.vector.reload-speed", 1.5);   // reload time in seconds (0 = use reload-ticks)
             yaml.set("guns.vector.sound", "minecraft:block.bamboo.hit");
             yaml.set("guns.vector.sound-pitch", 1.9);
             yaml.set("guns.vector.fire-modes", "auto");
@@ -951,6 +953,7 @@ public final class GunRegistry {
         return switch (stat) {
             case "firerate" -> "fire-rate";
             case "reloadticks" -> "reload-ticks";
+            case "reloadspeed" -> "reload-speed";
             case "soundpitch" -> "sound-pitch";
             case "effectticks" -> "effect-ticks";
             case "effectlevel" -> "effect-level";

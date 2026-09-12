@@ -45,7 +45,6 @@ public final class GunsPlugin extends JavaPlugin {
         shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
-        getServer().getScheduler().runTaskTimer(this, shootListener::autoFireTick, 1L, 1L);   // auto spray
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation
         getServer().getScheduler().runTask(this, shootListener::sweepBulletHoles);           // clear legacy holes

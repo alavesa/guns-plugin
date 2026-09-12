@@ -603,60 +603,33 @@ public final class ShootListener implements Listener {
         shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
     }
 
-    /** Time of the last arm-swing per player, and the AUTO "holding" set. Auto fire keeps going as long as
-     *  swings keep arriving (grace window); if the client streams swings while LEFT is held it sprays, and
-     *  it stops ~AUTO_GRACE_MS after the swings stop (i.e. after release). */
+    /** Time of the last swing per player (semi one-shot-per-press gate). */
     private final Map<UUID, Long> lastSwing = new ConcurrentHashMap<>();
-    private final java.util.Set<UUID> autoHold = ConcurrentHashMap.newKeySet();
-    private static final long AUTO_GRACE_MS = 300;
 
     /** Live swing-rate debug (/guns swingdebug): counts arm-swings so we can SEE whether holding LEFT
-     *  streams repeated swings on this client (climbing count) or sends just one (stuck at 1). */
+     *  streams repeated swings (climbing count = full-auto works) or sends just one (stuck at 1). */
     public final java.util.Set<UUID> swingDebugOn = ConcurrentHashMap.newKeySet();
     private final Map<UUID, Integer> swingDebugCount = new ConcurrentHashMap<>();
     public void resetSwingDebug(UUID id) { swingDebugCount.put(id, 0); }
 
-    /** Called on every arm-swing (left-click) while holding a gun, from onSwing. Fires the gun; for AUTO it
-     *  arms a grace window that autoFireTick() keeps spraying while fresh swings keep arriving. */
+    /** CounterMine-style full-auto: called on EVERY arm-swing (from onSwing and the left-click interact).
+     *  The client streams swing packets while LEFT-click is HELD and pointed at a block (a wall/floor/any
+     *  surface in reach - which indoors is almost always), so an AUTO gun fires on every swing = continuous
+     *  hold-to-fire, capped by the gun's fire-rate. A SEMI gun fires once per press (repeat swings ignored).
+     *  Firing is fire-rate gated (shoot() dedups) so the onSwing + left-click double-call never doubles. */
     public void swingFire(Player player) {
         ItemStack item = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
         UUID id = player.getUniqueId();
-        long now = System.currentTimeMillis();
-        if (swingDebugOn.contains(id)) {
-            int c = swingDebugCount.merge(id, 1, Integer::sum);
-            player.sendActionBar(net.kyori.adventure.text.Component.text(
-                "swings while holding = " + c + "  (climbs = repeats -> auto works; stuck at 1 = no repeat)"));
-        }
         if (reloading.contains(id)) return;
+        long now = System.currentTimeMillis();
         Long last = lastSwing.put(id, now);
         if ("auto".equals(registry.fireModeOf(item, gun))) {
-            if (registry.ammoOf(item) <= 0) { shoot(player, gun, item); return; }
-            autoHold.add(id);              // arm the grace window; per-tick keeps firing while swings are fresh
-            shoot(player, gun, item);      // first round immediately
+            shoot(player, gun, item);                        // fire per swing -> hold sprays at the fire-rate
         } else {
-            if (last != null && now - last < 200) return;   // semi: one shot per press (ignore fast repeats)
+            if (last != null && now - last < 200) return;    // semi: one shot per press
             shoot(player, gun, item);
-        }
-    }
-
-    /** Per-tick: AUTO guns keep firing at the fire-rate while swings are still arriving (within the grace
-     *  window). If the client streams swings while LEFT is held, this is continuous hold-to-fire; when the
-     *  swings stop (release), the window lapses and firing stops ~AUTO_GRACE_MS later. */
-    public void autoFireTick() {
-        if (autoHold.isEmpty()) return;
-        long now = System.currentTimeMillis();
-        for (java.util.Iterator<UUID> it = autoHold.iterator(); it.hasNext(); ) {
-            UUID id = it.next();
-            Long last = lastSwing.get(id);
-            Player p = plugin.getServer().getPlayer(id);
-            if (p == null || !p.isOnline() || last == null || now - last > AUTO_GRACE_MS) { it.remove(); continue; }
-            ItemStack held = p.getInventory().getItemInMainHand();
-            Gun g = registry.gunOf(held);
-            if (g == null || !"auto".equals(registry.fireModeOf(held, g))
-                || registry.ammoOf(held) <= 0 || reloading.contains(id)) { it.remove(); continue; }
-            shoot(p, g, held);
         }
     }
 
@@ -678,7 +651,7 @@ public final class ShootListener implements Listener {
         suppressReticle(player);
         ammoBar.update(player, gun, 0, registry.fireModeOf(item, gun), reserveRounds(player, gun));
 
-        int ticks = Math.max(1, gun.reloadTicks());
+        int ticks = Math.max(1, gun.reloadDelayTicks());   // reload-speed (seconds) if set, else reload-ticks
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             reloading.remove(id);
             if (!player.isOnline()) return;
@@ -872,8 +845,16 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) return;
         event.setCancelled(true);
-        // Fire from the swing too: if the client streams swings while LEFT is held, this is what sustains
-        // full-auto. Fire-rate gated (shoot() dedups) so it never doubles with the onShoot left-click.
+        // Count raw swing packets for /guns swingdebug (this event = one swing packet). Climbing while
+        // holding LEFT = the client streams swings (full-auto works); stuck at 1 = one swing per press.
+        UUID id = player.getUniqueId();
+        if (swingDebugOn.contains(id)) {
+            int c = swingDebugCount.merge(id, 1, Integer::sum);
+            player.sendActionBar(net.kyori.adventure.text.Component.text("swings = " + c
+                + "  (climbs while holding LEFT = auto works; stuck at 1 = one per press)"));
+        }
+        // Fire from the swing too: if the client streams swings while LEFT is held, this sustains full-auto.
+        // Fire-rate gated (shoot() dedups) so it never doubles with the onShoot left-click.
         swingFire(player);
     }
 
@@ -897,7 +878,7 @@ public final class ShootListener implements Listener {
         int ammo = registry.ammoOf(item);
         if (ammo <= 0) {
             player.getWorld().playSound(player.getLocation(), "minecraft:block.dispenser.fail", 0.8f, 1.6f);
-            Msg.actionbar(player, Component.text("Out of ammo - hold right-click to reload", NamedTextColor.RED));
+            Msg.actionbar(player, Component.text("Out of ammo - press F to reload", NamedTextColor.RED));
             suppressReticle(player);
             return;
         }
@@ -910,7 +891,7 @@ public final class ShootListener implements Listener {
             // Reloading is the timer in startReload - no lent "round" arrow needed.
             unchargeGun(item);
             showEmptyModel(player, item, gun);
-            Msg.actionbar(player, Component.text("Empty - right-click to reload", NamedTextColor.YELLOW));
+            Msg.actionbar(player, Component.text("Empty - press F to reload", NamedTextColor.YELLOW));
             suppressReticle(player);
         }
         // NOTE: no hand-dip on fire - the gun used to visibly drop on each shot; the

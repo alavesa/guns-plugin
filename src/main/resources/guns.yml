@@ -86,7 +86,8 @@ guns:
     fire-rate: 9.0          # .45 ACP SMG - very fast (tap fast for full-auto feel)
     range: 40
     magazine: 25            # authentic 25-round Glock .45 magazine
-    reload-ticks: 30
+    reload-ticks: 30        # legacy reload time in TICKS (used only if reload-speed is 0)
+    reload-speed: 1.5       # reload time in SECONDS (how long a reload takes); 0 = use reload-ticks
     sound: "minecraft:block.bamboo.hit"
     sound-pitch: 1.9
     effect: none

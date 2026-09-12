@@ -38,8 +38,14 @@ public record Gun(
     String casingDir,  // ejected-casing velocity as "right,up,forward" (relative to aim); "off" = none
     String casingPos,  // casing spawn offset as "right,up,forward" from the eye
     int pellets,       // rounds fired per trigger pull (1 = normal; >1 = a shotgun spread)
-    String bulletModel // custom_model_data string for the flying bullet's model ("" = a plain arrow)
+    String bulletModel, // custom_model_data string for the flying bullet's model ("" = a plain arrow)
+    double reloadSpeed // reload time in SECONDS (0 = use the legacy reload-ticks instead)
 ) {
+
+    /** Reload duration in ticks: from reload-speed (seconds) when set (>0), else the legacy reload-ticks. */
+    public int reloadDelayTicks() {
+        return reloadSpeed > 0 ? Math.max(1, (int) Math.round(reloadSpeed * 20.0)) : reloadTicks;
+    }
 
     /** A shotgun fires more than one pellet per shot. */
     public boolean isShotgun() { return pellets > 1; }
