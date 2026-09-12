@@ -547,7 +547,7 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (left) {
             event.setCancelled(true);            // no melee/block-break with a gun
-            swingFire(player);                   // AUTO = press toggles spray; SEMI = one shot per press
+            swingFire(player);                   // fire (also fired from onSwing; fire-rate gated so no double)
             return;
         }
         // RIGHT click does nothing for guns now: firing is LEFT, reloading is F. (Spyglass keeps its scope.)
@@ -603,54 +603,55 @@ public final class ShootListener implements Listener {
         shoot(player, gun, item);   // one round per click; the fire-rate cooldown caps it
     }
 
-    /** Last left-click time per player, to ignore any stray repeat (for semi guns). */
+    /** Time of the last arm-swing per player, and the AUTO "holding" set. Auto fire keeps going as long as
+     *  swings keep arriving (grace window); if the client streams swings while LEFT is held it sprays, and
+     *  it stops ~AUTO_GRACE_MS after the swings stop (i.e. after release). */
     private final Map<UUID, Long> lastSwing = new ConcurrentHashMap<>();
-    /** Players whose AUTO gun is currently spraying. */
-    private final java.util.Set<UUID> autoFiring = ConcurrentHashMap.newKeySet();
-    private final Map<UUID, Long> autoToggleCd = new ConcurrentHashMap<>();
+    private final java.util.Set<UUID> autoHold = ConcurrentHashMap.newKeySet();
+    private static final long AUTO_GRACE_MS = 300;
 
-    /** Called on the MAIN thread for every LEFT-click / arm-swing while a player holds a gun.
-     *
-     *  IMPORTANT LIMIT: Minecraft sends NO repeated or "held" signal for left-click on air - the client
-     *  sends exactly ONE swing per press and nothing on release. So firing purely by how long LEFT is held
-     *  is impossible server-side. Instead:
-     *    - AUTO gun: the swing TOGGLES a continuous spray - press to start firing at the fire-rate, it keeps
-     *      going until the magazine empties or you press again to stop. (Holding the button therefore empties
-     *      the mag; a second click stops early.) autoFireTick() does the per-tick firing.
-     *    - SEMI gun: one shot per press. */
+    /** Live swing-rate debug (/guns swingdebug): counts arm-swings so we can SEE whether holding LEFT
+     *  streams repeated swings on this client (climbing count) or sends just one (stuck at 1). */
+    public final java.util.Set<UUID> swingDebugOn = ConcurrentHashMap.newKeySet();
+    private final Map<UUID, Integer> swingDebugCount = new ConcurrentHashMap<>();
+    public void resetSwingDebug(UUID id) { swingDebugCount.put(id, 0); }
+
+    /** Called on every arm-swing (left-click) while holding a gun, from onSwing. Fires the gun; for AUTO it
+     *  arms a grace window that autoFireTick() keeps spraying while fresh swings keep arriving. */
     public void swingFire(Player player) {
         ItemStack item = player.getInventory().getItemInMainHand();
         Gun gun = registry.gunOf(item);
         if (gun == null) return;
         UUID id = player.getUniqueId();
-        if (reloading.contains(id)) return;
         long now = System.currentTimeMillis();
+        if (swingDebugOn.contains(id)) {
+            int c = swingDebugCount.merge(id, 1, Integer::sum);
+            player.sendActionBar(net.kyori.adventure.text.Component.text(
+                "swings while holding = " + c + "  (climbs = repeats -> auto works; stuck at 1 = no repeat)"));
+        }
+        if (reloading.contains(id)) return;
+        Long last = lastSwing.put(id, now);
         if ("auto".equals(registry.fireModeOf(item, gun))) {
-            Long cd = autoToggleCd.get(id);
-            if (cd != null && now - cd < 250) return;      // one press = one toggle
-            autoToggleCd.put(id, now);
-            if (autoFiring.remove(id)) {                   // was spraying -> stop
-                Msg.actionbar(player, Component.text("Auto: OFF", NamedTextColor.GRAY));
-                return;
-            }
-            if (registry.ammoOf(item) <= 0) { shoot(player, gun, item); return; }  // dry-fire feedback
-            autoFiring.add(id);                            // start spraying, fire the first round now
-            shoot(player, gun, item);
+            if (registry.ammoOf(item) <= 0) { shoot(player, gun, item); return; }
+            autoHold.add(id);              // arm the grace window; per-tick keeps firing while swings are fresh
+            shoot(player, gun, item);      // first round immediately
         } else {
-            Long last = lastSwing.put(id, now);
-            if (last != null && now - last < 250) return;  // ignore any repeat swing
-            shoot(player, gun, item);                       // semi: one shot per press
+            if (last != null && now - last < 200) return;   // semi: one shot per press (ignore fast repeats)
+            shoot(player, gun, item);
         }
     }
 
-    /** Per-tick: fire the guns of everyone whose AUTO spray is on; stops when they no longer hold that
-     *  loaded auto gun or a reload starts. */
+    /** Per-tick: AUTO guns keep firing at the fire-rate while swings are still arriving (within the grace
+     *  window). If the client streams swings while LEFT is held, this is continuous hold-to-fire; when the
+     *  swings stop (release), the window lapses and firing stops ~AUTO_GRACE_MS later. */
     public void autoFireTick() {
-        if (autoFiring.isEmpty()) return;
-        for (java.util.Iterator<UUID> it = autoFiring.iterator(); it.hasNext(); ) {
+        if (autoHold.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        for (java.util.Iterator<UUID> it = autoHold.iterator(); it.hasNext(); ) {
             UUID id = it.next();
+            Long last = lastSwing.get(id);
             Player p = plugin.getServer().getPlayer(id);
-            if (p == null || !p.isOnline()) { it.remove(); continue; }
+            if (p == null || !p.isOnline() || last == null || now - last > AUTO_GRACE_MS) { it.remove(); continue; }
             ItemStack held = p.getInventory().getItemInMainHand();
             Gun g = registry.gunOf(held);
             if (g == null || !"auto".equals(registry.fireModeOf(held, g))
@@ -871,6 +872,9 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) return;
         event.setCancelled(true);
+        // Fire from the swing too: if the client streams swings while LEFT is held, this is what sustains
+        // full-auto. Fire-rate gated (shoot() dedups) so it never doubles with the onShoot left-click.
+        swingFire(player);
     }
 
     /** The charged arrow exists only for the aiming pose - if anything

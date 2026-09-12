@@ -428,6 +428,18 @@ public final class GunsPlugin extends JavaPlugin {
                 // /guns firemode was removed - each gun now has ONE fixed mode (semi OR auto) set in guns.yml.
                 case "swingdebug", "swing" -> {
                     if (!(sender instanceof org.bukkit.entity.Player player)) return error(sender, "Players only.");
+                    // Toggle the live swing-rate counter: hold LEFT and watch the action bar. If the number
+                    // CLIMBS while holding, the client streams swings (full-auto can work); if it stays at 1,
+                    // the client sends one swing per press (hold-to-fire is impossible - this is the proof).
+                    if (shootListener.swingDebugOn.remove(player.getUniqueId())) {
+                        sender.sendMessage(Component.text("Swing counter OFF.", NamedTextColor.GRAY));
+                    } else {
+                        shootListener.swingDebugOn.add(player.getUniqueId());
+                        shootListener.resetSwingDebug(player.getUniqueId());
+                        sender.sendMessage(Component.text("Swing counter ON - hold LEFT-click and watch the "
+                            + "action bar. Climbs = swings repeat (auto works); stuck at 1 = no repeat.",
+                            NamedTextColor.GOLD));
+                    }
                     var held = player.getInventory().getItemInMainHand();
                     Gun gun = registry.gunOf(held);
                     var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
