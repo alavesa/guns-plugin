@@ -653,18 +653,7 @@ public final class ShootListener implements Listener {
             // ~1.6 blocks ahead of the eye, on the look ray (its own small hitbox catches the crosshair).
             org.bukkit.Location at = p.getEyeLocation().add(p.getEyeLocation().getDirection().multiply(1.6));
             if (s == null || !s.isValid()) {
-                s = p.getWorld().spawn(at, org.bukkit.entity.Slime.class, e -> {
-                    e.setSize(1);
-                    e.setInvisible(true);
-                    e.setAI(false);
-                    e.setGravity(false);
-                    e.setInvulnerable(true);
-                    e.setSilent(true);
-                    e.setCollidable(false);
-                    e.setPersistent(false);
-                    e.setRemoveWhenFarAway(true);
-                    e.addScoreboardTag(AIMLOCK_TAG);
-                });
+                s = spawnAimLock(p, at);
                 aimLock.put(id, s);
             } else {
                 s.teleport(at);
@@ -672,13 +661,42 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** A player attacked their aim-lock slime = a left-click landed on it. Cancel the (zero) damage and fire;
-     *  holding LEFT streams these events, giving continuous full-auto. */
+    /** Spawn one aim-lock slime. NOT invulnerable (an invulnerable entity blocks EntityDamageByEntityEvent,
+     *  which is exactly the attack signal we need) - instead its damage is cancelled in the handler, and it
+     *  is short-lived (recycled on every hit). Invisible, no AI/gravity/collision, silent, never persisted. */
+    private org.bukkit.entity.Slime spawnAimLock(Player p, org.bukkit.Location at) {
+        return p.getWorld().spawn(at, org.bukkit.entity.Slime.class, e -> {
+            e.setSize(1);
+            e.setInvisible(true);
+            e.setAI(false);
+            e.setGravity(false);
+            e.setSilent(true);
+            e.setCollidable(false);
+            e.setPersistent(false);
+            e.setRemoveWhenFarAway(true);
+            e.addScoreboardTag(AIMLOCK_TAG);
+        });
+    }
+
+    /** A player attacked their aim-lock slime = a left-click landed on it. Cancel the damage, fire the gun,
+     *  then RECYCLE the entity: destroy it so aimBoxTick spawns a BRAND-NEW slime (new entity id) in the
+     *  crosshair next tick. The client, still holding LEFT, auto-attacks the new target - that cycle
+     *  (spawn -> attack -> destroy -> respawn) is what makes holding LEFT stream attacks = full-auto. */
     @EventHandler(priority = EventPriority.LOWEST)
     public void onAimLockHit(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
         if (!event.getEntity().getScoreboardTags().contains(AIMLOCK_TAG)) return;
         event.setCancelled(true);
-        if (event.getDamager() instanceof Player p) swingFire(p);
+        if (!(event.getDamager() instanceof Player p)) return;
+        swingFire(p);
+        // Instantly recycle: destroy this one and summon a brand-new slime (new entity id) in the crosshair
+        // so the still-held LEFT button auto-attacks the fresh target -> the loop that streams attacks.
+        event.getEntity().remove();
+        if (registry.gunOf(p.getInventory().getItemInMainHand()) != null) {
+            org.bukkit.Location at = p.getEyeLocation().add(p.getEyeLocation().getDirection().multiply(1.6));
+            aimLock.put(p.getUniqueId(), spawnAimLock(p, at));
+        } else {
+            aimLock.remove(p.getUniqueId());
+        }
     }
 
     /** Remove every aim-lock slime (plugin disable / reload). */
