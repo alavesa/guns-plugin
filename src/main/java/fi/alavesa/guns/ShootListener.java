@@ -403,7 +403,8 @@ public final class ShootListener implements Listener {
         Player p = event.getPlayer();
         clearFovRecoil(p);
         purgeSpeedResidue(p);
-        purgeStrayRounds(p);   // remove any "round" arrow leaked by an older build's reload
+        purgeStrayRounds(p);   // remove any "round" arrow leaked by an older build
+        purgeBlockers(p);      // remove the reverted 0.70 off-hand structure_void, wherever it ended up's reload
         // Clear a stuck aim-slowness (the ADS Slowness IV lasts an hour; if a player crashed while
         // aiming it saved to their data and would slow them to a crawl forever). Any legitimate area
         // slowness is re-applied within a second, so this is safe.
@@ -701,6 +702,18 @@ public final class ShootListener implements Listener {
         for (int i = 0; i < contents.length; i++) {
             if (registry.isRound(contents[i])) player.getInventory().setItem(i, null);
         }
+    }
+
+    /** Remove the off-hand blocker (structure_void) the 0.70 build put in the off-hand - that feature was
+     *  reverted. Scan the WHOLE inventory (main hand, off-hand, hotbar, storage) so a copy that ended up
+     *  anywhere gets cleaned. Only OUR tagged item is touched; a real structure_void is left alone. */
+    public void purgeBlockers(Player player) {
+        var inv = player.getInventory();
+        ItemStack[] contents = inv.getContents();
+        for (int i = 0; i < contents.length; i++) {
+            if (registry.isOffhandBlocker(contents[i])) inv.setItem(i, null);
+        }
+        if (registry.isOffhandBlocker(inv.getItemInOffHand())) inv.setItemInOffHand(null);
     }
 
     /** Left-click cycles the held gun's fire mode (only if it offers more than

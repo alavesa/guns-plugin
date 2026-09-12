@@ -367,19 +367,8 @@ public final class GunRegistry {
         item.setItemMeta(meta);
     }
 
-    /** The invisible OFF-HAND blocker placed while a player holds a gun (CounterMine-style). It occupies
-     *  the off-hand with a tooltip-less, tagged marker; it is undroppable and never swaps into the main
-     *  hand. Uses a structure void (visually near-invisible). */
-    public ItemStack buildOffhandBlocker() {
-        ItemStack it = new ItemStack(Material.STRUCTURE_VOID);
-        var meta = it.getItemMeta();
-        meta.getPersistentDataContainer().set(offhandKey, PersistentDataType.BYTE, (byte) 1);
-        meta.displayName(net.kyori.adventure.text.Component.text(" "));
-        try { meta.setHideTooltip(true); } catch (Throwable ignored) { }   // 1.20.5+: no hover tooltip
-        it.setItemMeta(meta);
-        return it;
-    }
-
+    /** REVERTED: the off-hand blocker (structure_void) is no longer created or placed. This detector is
+     *  kept only so any copy left in a player's inventory from the 0.70 build can be found and purged. */
     public boolean isOffhandBlocker(ItemStack it) {
         return it != null && it.hasItemMeta()
             && it.getItemMeta().getPersistentDataContainer().has(offhandKey, PersistentDataType.BYTE);

@@ -86,10 +86,9 @@ public final class GunsPlugin extends JavaPlugin {
                         attr.removeModifier(atkKey);
                     }
                 }
-                // Clean up the old off-hand blocker from any player still carrying one (feature removed).
-                if (registry.isOffhandBlocker(player.getInventory().getItemInOffHand())) {
-                    player.getInventory().setItemInOffHand(null);
-                }
+                // Clean up the reverted 0.70 off-hand structure_void wherever it ended up (off-hand, hand,
+                // or anywhere in the inventory) for any player still carrying one.
+                shootListener.purgeBlockers(player);
                 if (holdingGun) {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
