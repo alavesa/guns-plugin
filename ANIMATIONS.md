@@ -43,7 +43,7 @@ The three clips (fixed names, in `ShootListener.java`):
 | Clip | Suffix | Plays when |
 |---|---|---|
 | Fire | `_fire` | the gun shoots (`playFirstPersonClip(player, gun, "_fire")`) |
-| Reload | `_reload` | a reload starts (right-click) |
+| Reload | `_reload` | a reload starts (press F) |
 | Equip | `_equip` | you draw the gun (hotbar switch, `onDrawAnim`) |
 
 So the frame model names for a gun whose base model is `gun_vector` are:
@@ -221,7 +221,7 @@ guns:
 
 ### Step 5 — Test in game
 
-Hold the Vector, fire a few rounds, then **right-click to reload**. You should see the four frames step through, then the gun settle back to `gun_vector_fp`. Tweaks:
+Hold the Vector, fire a few rounds, then **press F to reload**. You should see the four frames step through, then the gun settle back to `gun_vector_fp`. Tweaks:
 
 - Too fast/slow? Re-run with different `frame-ticks` (`/guns anim vector reload 4 3`).
 - Want it gone? `/guns anim vector reload 0`.

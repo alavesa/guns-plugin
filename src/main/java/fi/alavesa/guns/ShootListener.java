@@ -633,52 +633,58 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** CounterMine method: an invisible INTERACTION entity kept in each gun-holder's crosshair. Left-clicks
-     *  (and held left-clicks) land on the box instead of empty air, so the client keeps sending attack/swing
-     *  packets while LEFT is held - the ONLY way the server can see repeated left-clicks. We poll the box's
-     *  last-attack timestamp and fire on every new attack, giving continuous full-auto while held. */
-    private final Map<UUID, org.bukkit.entity.Interaction> aimBox = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> boxAttackSeen = new ConcurrentHashMap<>();
+    /** CounterMine "Method 1" (target-locking): an invisible, invulnerable SLIME is kept right in the
+     *  gun-holder's crosshair. Because there is a living entity under the cursor, holding LEFT-click makes
+     *  the client stream "attack entity" packets (instead of a single air swing) - which arrive as repeated
+     *  EntityDamageByEntityEvent. onAimLockHit cancels the damage and fires the gun on each, so holding LEFT
+     *  = continuous full-auto for as long as the attack packets keep arriving. */
+    static final String AIMLOCK_TAG = "guns_aimlock";
+    private final Map<UUID, org.bukkit.entity.Slime> aimLock = new ConcurrentHashMap<>();
 
     public void aimBoxTick() {
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             UUID id = p.getUniqueId();
-            org.bukkit.entity.Interaction box = aimBox.get(id);
+            org.bukkit.entity.Slime s = aimLock.get(id);
             Gun gun = registry.gunOf(p.getInventory().getItemInMainHand());
             if (gun == null || p.isDead() || !p.isValid()) {
-                if (box != null) { box.remove(); aimBox.remove(id); boxAttackSeen.remove(id); }
+                if (s != null) { s.remove(); aimLock.remove(id); }
                 continue;
             }
-            // Keep the box ~2.2 blocks ahead of the eye, centred on the look ray (interaction position is the
-            // box's bottom-centre, so drop it half its height).
-            org.bukkit.Location eye = p.getEyeLocation();
-            org.bukkit.Location at = eye.clone().add(eye.getDirection().multiply(2.2));
-            at.setY(at.getY() - 1.1);
-            if (box == null || !box.isValid()) {
-                box = p.getWorld().spawn(at, org.bukkit.entity.Interaction.class, e -> {
-                    e.setInteractionWidth(2.2f);
-                    e.setInteractionHeight(2.2f);
-                    e.setResponsive(true);          // record attacks/interacts
-                    e.setPersistent(false);         // never saved to disk
+            // ~1.6 blocks ahead of the eye, on the look ray (its own small hitbox catches the crosshair).
+            org.bukkit.Location at = p.getEyeLocation().add(p.getEyeLocation().getDirection().multiply(1.6));
+            if (s == null || !s.isValid()) {
+                s = p.getWorld().spawn(at, org.bukkit.entity.Slime.class, e -> {
+                    e.setSize(1);
+                    e.setInvisible(true);
+                    e.setAI(false);
+                    e.setGravity(false);
+                    e.setInvulnerable(true);
+                    e.setSilent(true);
+                    e.setCollidable(false);
+                    e.setPersistent(false);
+                    e.setRemoveWhenFarAway(true);
+                    e.addScoreboardTag(AIMLOCK_TAG);
                 });
-                aimBox.put(id, box);
+                aimLock.put(id, s);
             } else {
-                box.teleport(at);
-            }
-            var la = box.getLastAttack();           // the most recent left-click on the box
-            if (la != null) {
-                long ts = la.getTimestamp();
-                Long seen = boxAttackSeen.put(id, ts);
-                if (seen != null && ts > seen) swingFire(p);   // a NEW left-click since last tick -> fire
+                s.teleport(at);
             }
         }
     }
 
-    /** Remove every aim box (plugin disable / reload). */
+    /** A player attacked their aim-lock slime = a left-click landed on it. Cancel the (zero) damage and fire;
+     *  holding LEFT streams these events, giving continuous full-auto. */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onAimLockHit(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
+        if (!event.getEntity().getScoreboardTags().contains(AIMLOCK_TAG)) return;
+        event.setCancelled(true);
+        if (event.getDamager() instanceof Player p) swingFire(p);
+    }
+
+    /** Remove every aim-lock slime (plugin disable / reload). */
     public void removeAllAimBoxes() {
-        for (var b : aimBox.values()) if (b != null && b.isValid()) b.remove();
-        aimBox.clear();
-        boxAttackSeen.clear();
+        for (var s : aimLock.values()) if (s != null && s.isValid()) s.remove();
+        aimLock.clear();
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
@@ -1030,7 +1036,8 @@ public final class ShootListener implements Listener {
         Location eye = player.getEyeLocation();
         RayTraceResult pb = player.getWorld().rayTrace(eye, dir, pbRange,
             FluidCollisionMode.NEVER, true, 0.3,
-            e -> e instanceof LivingEntity && e != player && !bullets.contains(e.getUniqueId()));
+            e -> e instanceof LivingEntity && e != player && !bullets.contains(e.getUniqueId())
+                && !e.getScoreboardTags().contains(AIMLOCK_TAG));   // bullets pass through the aim-lock slime
         if (pb != null) {
             if (pb.getHitEntity() instanceof LivingEntity target) {
                 applyHit(player, gun, target, pb.getHitPosition().toLocation(player.getWorld()), dmgMult);
@@ -1298,6 +1305,7 @@ public final class ShootListener implements Listener {
                     org.bukkit.util.RayTraceResult ent = bullet.getWorld().rayTraceEntities(
                         from, dir, reach, 0.35,
                         e2 -> e2 instanceof LivingEntity && e2 != shooter
+                            && !e2.getScoreboardTags().contains(AIMLOCK_TAG)
                             && !bullets.contains(e2.getUniqueId()));
                     org.bukkit.util.RayTraceResult blk = bullet.getWorld().rayTraceBlocks(
                         from, dir, reach, FluidCollisionMode.NEVER, true);
@@ -1349,6 +1357,9 @@ public final class ShootListener implements Listener {
         Player shooter = shooterId == null ? null
             : plugin.getServer().getPlayer(java.util.UUID.fromString(shooterId));
 
+        if (event.getHitEntity() != null && event.getHitEntity().getScoreboardTags().contains(AIMLOCK_TAG)) {
+            return;   // never let a bullet interact with the aim-lock slime
+        }
         if (event.getHitEntity() instanceof LivingEntity target
             && target != shooter && gun != null) {
             applyHit(shooter, gun, target, bullet.getLocation(),
