@@ -572,13 +572,10 @@ public final class ShootListener implements Listener {
         fireByMode(player, gun, item);
     }
 
-    /** Left-click with a gun must never mine a block (it's the trigger). Cancel the block damage START
-     *  (stops the cracking animation too) and the break itself, for any gun holder - fully server-side,
-     *  no Adventure mode needed. */
-    @EventHandler(ignoreCancelled = true)
-    public void onGunBlockDamage(org.bukkit.event.block.BlockDamageEvent event) {
-        if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null) event.setCancelled(true);
-    }
+    /** Left-click with a gun must never BREAK a block, but we must NOT cancel the block-damage START: that
+     *  abort tells the client to stop digging, which kills the continuous mining swing-stream that drives
+     *  left-hold full-auto. So we let the "mining" run (it feeds the swing stream) and only cancel the actual
+     *  break, so no block is ever destroyed. */
     @EventHandler(ignoreCancelled = true)
     public void onGunBlockBreak(org.bukkit.event.block.BlockBreakEvent event) {
         if (registry.gunOf(event.getPlayer().getInventory().getItemInMainHand()) != null) event.setCancelled(true);
