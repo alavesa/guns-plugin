@@ -29,7 +29,7 @@ final class GunSwingSuppressor {
 
     private GunSwingSuppressor() { }
 
-    static void register(Plugin plugin, GunRegistry registry) {
+    static void register(Plugin plugin, GunRegistry registry, ShootListener shootListener) {
         ProtocolManager protocol = ProtocolLibrary.getProtocolManager();
         protocol.addPacketListener(new PacketAdapter(plugin, ListenerPriority.NORMAL,
                 PacketType.Play.Server.ANIMATION) {     // server -> other clients "entity swung"
@@ -49,6 +49,29 @@ final class GunSwingSuppressor {
                 }
             }
         });
-        plugin.getLogger().info("ProtocolLib detected - gun arm-swing hidden from other players (third-person).");
+
+        // INBOUND diagnostic + auto-fire driver. We listen (never cancel) to the three packet types that a
+        // held LEFT-click could stream, count them for /guns swingdebug, and FIRE the gun on dig / attack
+        // packets (arm-swing is already handled by onSwing). Whichever type STREAMS while LEFT is held drives
+        // continuous full-auto - and the live counter shows exactly which one that is on this client.
+        protocol.addPacketListener(new PacketAdapter(plugin, ListenerPriority.MONITOR,
+                PacketType.Play.Client.ARM_ANIMATION,
+                PacketType.Play.Client.BLOCK_DIG,
+                PacketType.Play.Client.USE_ENTITY) {
+            @Override
+            public void onPacketReceiving(PacketEvent event) {
+                Player player = event.getPlayer();
+                if (player == null) return;
+                if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) return;
+                PacketType type = event.getPacketType();
+                final int idx = type == PacketType.Play.Client.ARM_ANIMATION ? 0
+                              : type == PacketType.Play.Client.BLOCK_DIG ? 1 : 2;
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    shootListener.debugPacket(player, idx);
+                    if (idx != 0) shootListener.swingFire(player);   // dig/attack stream -> auto (swing via onSwing)
+                });
+            }
+        });
+        plugin.getLogger().info("ProtocolLib detected - swing hidden from others + swing/dig/attack fire+debug.");
     }
 }

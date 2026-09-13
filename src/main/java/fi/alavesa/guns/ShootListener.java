@@ -606,11 +606,21 @@ public final class ShootListener implements Listener {
     /** Time of the last swing per player (semi one-shot-per-press gate). */
     private final Map<UUID, Long> lastSwing = new ConcurrentHashMap<>();
 
-    /** Live swing-rate debug (/guns swingdebug): counts arm-swings so we can SEE whether holding LEFT
-     *  streams repeated swings (climbing count = full-auto works) or sends just one (stuck at 1). */
+    /** Live packet debug (/guns swingdebug): counts the inbound packet types while a gun is held, so we can
+     *  SEE which one (if any) STREAMS while LEFT-click is held: swing / dig (block-mining) / atk (attack). */
     public final java.util.Set<UUID> swingDebugOn = ConcurrentHashMap.newKeySet();
-    private final Map<UUID, Integer> swingDebugCount = new ConcurrentHashMap<>();
-    public void resetSwingDebug(UUID id) { swingDebugCount.put(id, 0); }
+    private final Map<UUID, int[]> pktCounts = new ConcurrentHashMap<>();   // [swing, dig, atk]
+    public void resetSwingDebug(UUID id) { pktCounts.put(id, new int[3]); }
+
+    /** Called from the ProtocolLib packet listener (main thread) for each inbound packet from a gun holder.
+     *  idx: 0 = swing (ARM_ANIMATION), 1 = dig (BLOCK_DIG), 2 = atk (USE_ENTITY). Shows a live count. */
+    public void debugPacket(Player p, int idx) {
+        if (!swingDebugOn.contains(p.getUniqueId())) return;
+        int[] c = pktCounts.computeIfAbsent(p.getUniqueId(), k -> new int[3]);
+        if (idx >= 0 && idx < 3) c[idx]++;
+        p.sendActionBar(net.kyori.adventure.text.Component.text(
+            "swing=" + c[0] + "  dig=" + c[1] + "  atk=" + c[2] + "   (hold LEFT - which climbs = the stream)"));
+    }
 
     /** CounterMine-style full-auto: called on EVERY arm-swing (from onSwing and the left-click interact).
      *  The client streams swing packets while LEFT-click is HELD and pointed at a block (a wall/floor/any
@@ -907,16 +917,9 @@ public final class ShootListener implements Listener {
         Player player = event.getPlayer();
         if (registry.gunOf(player.getInventory().getItemInMainHand()) == null) return;
         event.setCancelled(true);
-        // Count raw swing packets for /guns swingdebug (this event = one swing packet). Climbing while
-        // holding LEFT = the client streams swings (full-auto works); stuck at 1 = one swing per press.
-        UUID id = player.getUniqueId();
-        if (swingDebugOn.contains(id)) {
-            int c = swingDebugCount.merge(id, 1, Integer::sum);
-            player.sendActionBar(net.kyori.adventure.text.Component.text("swings = " + c
-                + "  (climbs while holding LEFT = auto works; stuck at 1 = one per press)"));
-        }
         // Fire from the swing too: if the client streams swings while LEFT is held, this sustains full-auto.
-        // Fire-rate gated (shoot() dedups) so it never doubles with the onShoot left-click.
+        // Fire-rate gated (shoot() dedups) so it never doubles with the onShoot left-click. (Packet counting
+        // for /guns swingdebug happens in the ProtocolLib listener, which sees swing/dig/attack alike.)
         swingFire(player);
     }
 

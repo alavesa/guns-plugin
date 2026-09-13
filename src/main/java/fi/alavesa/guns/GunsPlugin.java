@@ -58,7 +58,7 @@ public final class GunsPlugin extends JavaPlugin {
         // the GunSwingSuppressor class is only linked when ProtocolLib is installed.
         if (getConfig().getBoolean("hide-swing-protocollib", true)
             && getServer().getPluginManager().getPlugin("ProtocolLib") != null) {
-            GunSwingSuppressor.register(this, registry);
+            GunSwingSuppressor.register(this, registry, shootListener);
         }
 
         // Ammo boss bar + the swing-suppression effects, polled every 5 ticks. attack_speed is a
