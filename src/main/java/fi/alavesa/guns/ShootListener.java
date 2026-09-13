@@ -563,6 +563,7 @@ public final class ShootListener implements Listener {
     @EventHandler(priority = EventPriority.HIGH)
     public void onShootFromVehicle(org.bukkit.event.player.PlayerInteractEntityEvent event) {
         if (event.getHand() != EquipmentSlot.HAND) return;
+        if (event.getRightClicked().getScoreboardTags().contains(AIMLOCK_TAG)) return;  // never fire on the aim-lock box
         Player player = event.getPlayer();
         if (!player.isInsideVehicle()) return;
         ItemStack item = player.getInventory().getItemInMainHand();
@@ -665,6 +666,12 @@ public final class ShootListener implements Listener {
             if (gun == null || p.isDead() || !p.isValid()) {
                 if (box != null) { box.remove(); aimLock.remove(id); boxAttackSeen.remove(id); }
                 continue;
+            }
+            // AGGRESSIVELY strip Mining Fatigue every tick while holding a gun (any amplifier, any source -
+            // e.g. an old guns-swing datapack): amp 255 breaks the client's block-mining prediction, which is
+            // the exact stream the aim-lock relies on, so ANY fatigue kills left-hold full-auto.
+            if (p.hasPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE)) {
+                p.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
             }
             // Keep a SMALL box INSIDE the player's head (centred on the eye), so the crosshair is always on
             // it from any angle. Interaction position is the box's bottom-centre, so drop it half its height.
