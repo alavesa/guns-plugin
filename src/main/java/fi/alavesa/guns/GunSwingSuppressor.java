@@ -68,7 +68,9 @@ final class GunSwingSuppressor {
                               : type == PacketType.Play.Client.BLOCK_DIG ? 1 : 2;
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     shootListener.debugPacket(player, idx);
-                    if (idx != 0) shootListener.swingFire(player);   // dig/attack stream -> auto (swing via onSwing)
+                    // Fire ONLY on the block-dig stream (left-click mining). NOT on USE_ENTITY: right-click
+                    // sends USE_ENTITY (interact) too, and firing on that made the gun shoot on right-click.
+                    if (idx == 1) shootListener.swingFire(player);   // swings are handled by onSwing
                 });
             }
         });

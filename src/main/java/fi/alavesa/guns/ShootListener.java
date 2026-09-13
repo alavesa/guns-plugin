@@ -666,10 +666,10 @@ public final class ShootListener implements Listener {
                 if (box != null) { box.remove(); aimLock.remove(id); boxAttackSeen.remove(id); }
                 continue;
             }
-            // Keep it ~2 blocks ahead on the look ray. Interaction position is the box's bottom-centre, so
-            // drop it half its height to centre the hitbox on the crosshair.
-            org.bukkit.Location at = p.getEyeLocation().add(p.getEyeLocation().getDirection().multiply(2.0));
-            at.setY(at.getY() - 1.0);
+            // Keep a SMALL box INSIDE the player's head (centred on the eye), so the crosshair is always on
+            // it from any angle. Interaction position is the box's bottom-centre, so drop it half its height.
+            org.bukkit.Location at = p.getEyeLocation();
+            at.setY(at.getY() - 0.5);
             if (box == null || !box.isValid()) {
                 box = spawnAimLock(p, at);
                 aimLock.put(id, box);
@@ -689,8 +689,8 @@ public final class ShootListener implements Listener {
     /** One invisible INTERACTION entity in the crosshair (no model, no physics; the client "mines" it). */
     private org.bukkit.entity.Interaction spawnAimLock(Player p, org.bukkit.Location at) {
         return p.getWorld().spawn(at, org.bukkit.entity.Interaction.class, e -> {
-            e.setInteractionWidth(2.0f);
-            e.setInteractionHeight(2.0f);
+            e.setInteractionWidth(1.0f);
+            e.setInteractionHeight(1.0f);
             e.setResponsive(true);          // record the left-clicks
             e.setPersistent(false);         // never saved to disk
             e.addScoreboardTag(AIMLOCK_TAG);
