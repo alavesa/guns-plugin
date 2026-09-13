@@ -613,14 +613,16 @@ public final class ShootListener implements Listener {
     public void resetSwingDebug(UUID id) { pktCounts.put(id, new int[3]); }
 
     /** Called from the ProtocolLib packet listener (main thread) for each inbound packet from a gun holder.
-     *  idx: 0 = swing (ARM_ANIMATION), 1 = dig (BLOCK_DIG), 2 = atk (USE_ENTITY). Shows a live count. */
+     *  idx: 0 = swing (ARM_ANIMATION), 1 = dig (BLOCK_DIG), 2 = atk (USE_ENTITY). Just tallies - the totals
+     *  are reported to CHAT when /guns swingdebug is toggled off (the action bar is contested by other GUIs). */
     public void debugPacket(Player p, int idx) {
         if (!swingDebugOn.contains(p.getUniqueId())) return;
         int[] c = pktCounts.computeIfAbsent(p.getUniqueId(), k -> new int[3]);
         if (idx >= 0 && idx < 3) c[idx]++;
-        p.sendActionBar(net.kyori.adventure.text.Component.text(
-            "swing=" + c[0] + "  dig=" + c[1] + "  atk=" + c[2] + "   (hold LEFT - which climbs = the stream)"));
     }
+
+    /** The tallied [swing, dig, atk] counts since the last reset (for the /guns swingdebug report). */
+    public int[] pktCounts(UUID id) { return pktCounts.getOrDefault(id, new int[3]); }
 
     /** CounterMine-style full-auto: called on EVERY arm-swing (from onSwing and the left-click interact).
      *  The client streams swing packets while LEFT-click is HELD and pointed at a block (a wall/floor/any

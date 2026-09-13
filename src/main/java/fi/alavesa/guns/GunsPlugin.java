@@ -435,12 +435,22 @@ public final class GunsPlugin extends JavaPlugin {
                     // CLIMBS while holding, the client streams swings (full-auto can work); if it stays at 1,
                     // the client sends one swing per press (hold-to-fire is impossible - this is the proof).
                     if (shootListener.swingDebugOn.remove(player.getUniqueId())) {
-                        sender.sendMessage(Component.text("Swing counter OFF.", NamedTextColor.GRAY));
+                        int[] c = shootListener.pktCounts(player.getUniqueId());
+                        sender.sendMessage(Component.text("=== PACKET COUNTS while holding a gun ===",
+                            NamedTextColor.GOLD));
+                        sender.sendMessage(Component.text("  swing = " + c[0] + "   dig = " + c[1]
+                            + "   atk = " + c[2], NamedTextColor.AQUA));
+                        String streams = (c[0] > 3 ? "swing " : "") + (c[1] > 3 ? "dig " : "")
+                            + (c[2] > 3 ? "atk " : "");
+                        sender.sendMessage(Component.text(streams.isEmpty()
+                            ? "  -> nothing streamed (all low): this client sends ~1 packet per press, no hold stream."
+                            : "  -> STREAMS while held: " + streams.trim() + " (that packet drives full-auto).",
+                            streams.isEmpty() ? NamedTextColor.RED : NamedTextColor.GREEN));
                     } else {
                         shootListener.swingDebugOn.add(player.getUniqueId());
                         shootListener.resetSwingDebug(player.getUniqueId());
-                        sender.sendMessage(Component.text("Swing counter ON - hold LEFT-click and watch the "
-                            + "action bar. Climbs = swings repeat (auto works); stuck at 1 = no repeat.",
+                        sender.sendMessage(Component.text("Packet counter ON. HOLD left-click for ~3 seconds, "
+                            + "then run /guns swingdebug again to see the swing/dig/atk totals here in chat.",
                             NamedTextColor.GOLD));
                     }
                     var held = player.getInventory().getItemInMainHand();
