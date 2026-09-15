@@ -653,10 +653,16 @@ public final class ShootListener implements Listener {
 
     public void aimBoxTick() {
         org.bukkit.Material type;
-        try { type = org.bukkit.Material.valueOf(plugin.getConfig().getString("auto-fake-block", "BARRIER").toUpperCase()); }
-        catch (IllegalArgumentException e) { type = org.bukkit.Material.BARRIER; }
-        if (!type.isBlock()) type = org.bukkit.Material.BARRIER;
+        try { type = org.bukkit.Material.valueOf(plugin.getConfig().getString("auto-fake-block", "GLOW_LICHEN").toUpperCase()); }
+        catch (IllegalArgumentException e) { type = org.bukkit.Material.GLOW_LICHEN; }
+        if (!type.isBlock()) type = org.bukkit.Material.GLOW_LICHEN;
         org.bukkit.block.data.BlockData fake = type.createBlockData();
+        // A multiface block (glow_lichen etc.) needs faces to render + be mineable; setting them all makes a
+        // faint no-collision "cube" the client can mine from inside - so it never triggers crawl/suffocation
+        // like a solid barrier does, and it stays right in the head instead of being pushed above it.
+        if (fake instanceof org.bukkit.block.data.MultipleFacing mf) {
+            for (org.bukkit.block.BlockFace f : mf.getAllowedFaces()) mf.setFace(f, true);
+        }
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             UUID id = p.getUniqueId();
             Gun gun = registry.gunOf(p.getInventory().getItemInMainHand());
