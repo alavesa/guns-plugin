@@ -16,6 +16,13 @@
 #                 magazine - no arrow/"round" item is ever put in your inventory.
 fire-button: left
 
+# LEFT-hold full-auto (CounterMine Method 2): while holding a gun, a FULL block is shown CLIENT-SIDE-ONLY
+# inside your head so holding LEFT makes the client continuously "mine" it - streaming the packets the
+# server turns into automatic fire. The server never has the block (no crawl, no suffocation, nothing
+# breaks). This is the block type used. BARRIER is full + invisible; if it doesn't stream on your client,
+# try a normal breakable block like STONE or GLASS (more visible) to test.
+auto-fake-block: BARRIER
+
 
 # Removes the MINING swing (the arm-swing you get when you left-click while looking at a block/floor/wall):
 # a hidden high-amplifier Mining Fatigue stops the client from starting to mine, so no mining swing. Pairs

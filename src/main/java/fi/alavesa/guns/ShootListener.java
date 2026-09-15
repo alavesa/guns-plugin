@@ -643,72 +643,52 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** CounterMine "Method 1" (target-locking) - the CORRECT version, with an INTERACTION entity (NOT a mob).
-     *
-     *  Living mobs (pig/slime/zombie) are throttled by the 1.9 combat client: it needs a fresh distinct click
-     *  per attack, so holding LEFT does NOT stream. The INTERACTION entity (1.19.4) is not a mob - the client
-     *  treats left-clicking it EXACTLY like MINING A BLOCK, so holding LEFT natively streams a continuous flow
-     *  of swing packets while the button is down (no recycling needed). We keep ONE invisible interaction in
-     *  the crosshair; the streamed swings arrive as PlayerArmSwingEvent (onSwing -> swingFire) = continuous
-     *  full-auto, plus getLastAttack as a backup detector. Releasing LEFT ends the stream so firing stops.
-     *
-     *  CRITICAL: the gun's Mining-Fatigue-255 must be OFF (GunsPlugin) - amp 255 breaks the client's
-     *  block-mining prediction, which is the very stream this relies on (the interaction is "mined"). */
-    static final String AIMLOCK_TAG = "guns_aimlock";
-    private final Map<UUID, org.bukkit.entity.Interaction> aimLock = new ConcurrentHashMap<>();
-    private final Map<UUID, Long> boxAttackSeen = new ConcurrentHashMap<>();
+    /** CounterMine "Method 2": a FULL block sent CLIENT-SIDE-ONLY inside the gun-holder's head. Holding LEFT
+     *  makes the client continuously "mine" it, streaming BLOCK_DIG + arm-swing packets, which the server
+     *  turns into continuous full-auto (onSwing + the ProtocolLib dig listener). The server never actually
+     *  has the block, so no real block is touched and there is no crawl/suffocation server-side. Default
+     *  BARRIER (a full, invisible block); set `auto-fake-block` in config.yml to try another block type. */
+    static final String AIMLOCK_TAG = "guns_aimlock";        // kept for the bullet-raytrace filters (harmless)
+    private final Map<UUID, org.bukkit.Location> fakeBlock = new ConcurrentHashMap<>();
 
     public void aimBoxTick() {
+        org.bukkit.Material type;
+        try { type = org.bukkit.Material.valueOf(plugin.getConfig().getString("auto-fake-block", "BARRIER").toUpperCase()); }
+        catch (IllegalArgumentException e) { type = org.bukkit.Material.BARRIER; }
+        if (!type.isBlock()) type = org.bukkit.Material.BARRIER;
+        org.bukkit.block.data.BlockData fake = type.createBlockData();
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             UUID id = p.getUniqueId();
-            org.bukkit.entity.Interaction box = aimLock.get(id);
             Gun gun = registry.gunOf(p.getInventory().getItemInMainHand());
+            org.bukkit.Location prev = fakeBlock.get(id);
             if (gun == null || p.isDead() || !p.isValid()) {
-                if (box != null) { box.remove(); aimLock.remove(id); boxAttackSeen.remove(id); }
+                if (prev != null) { restoreFakeBlock(p, prev); fakeBlock.remove(id); }
                 continue;
             }
-            // AGGRESSIVELY strip Mining Fatigue every tick while holding a gun (any amplifier, any source -
-            // e.g. an old guns-swing datapack): amp 255 breaks the client's block-mining prediction, which is
-            // the exact stream the aim-lock relies on, so ANY fatigue kills left-hold full-auto.
+            // Strip Mining Fatigue (a datapack may apply it): a high amplifier breaks the client's block-mining
+            // prediction - the exact packet stream this relies on.
             if (p.hasPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE)) {
                 p.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
             }
-            // Keep a SMALL box INSIDE the player's head (centred on the eye), so the crosshair is always on
-            // it from any angle. Interaction position is the box's bottom-centre, so drop it half its height.
-            org.bukkit.Location at = p.getEyeLocation();
-            at.setY(at.getY() - 0.5);
-            if (box == null || !box.isValid()) {
-                box = spawnAimLock(p, at);
-                aimLock.put(id, box);
-            } else {
-                box.teleport(at);
-            }
-            // Backup detector: fire on each fresh attack the interaction records (onSwing is the main path).
-            var la = box.getLastAttack();
-            if (la != null) {
-                long ts = la.getTimestamp();
-                Long seen = boxAttackSeen.put(id, ts);
-                if (seen != null && ts > seen) swingFire(p);
-            }
+            org.bukkit.Location head = p.getEyeLocation().getBlock().getLocation();
+            if (prev != null && !prev.equals(head)) restoreFakeBlock(p, prev);   // clear the old spot
+            p.sendBlockChange(head, fake);          // fake full block in the head (client-side only)
+            fakeBlock.put(id, head);
         }
     }
 
-    /** One invisible INTERACTION entity in the crosshair (no model, no physics; the client "mines" it). */
-    private org.bukkit.entity.Interaction spawnAimLock(Player p, org.bukkit.Location at) {
-        return p.getWorld().spawn(at, org.bukkit.entity.Interaction.class, e -> {
-            e.setInteractionWidth(1.0f);
-            e.setInteractionHeight(1.0f);
-            e.setResponsive(true);          // record the left-clicks
-            e.setPersistent(false);         // never saved to disk
-            e.addScoreboardTag(AIMLOCK_TAG);
-        });
+    /** Re-send the REAL block at a spot so the client's fake block is cleared. */
+    private void restoreFakeBlock(Player p, org.bukkit.Location loc) {
+        if (loc.getWorld() != null && loc.isChunkLoaded()) p.sendBlockChange(loc, loc.getBlock().getBlockData());
     }
 
-    /** Remove every aim-lock interaction (plugin disable / reload). */
+    /** Clear every player's fake block (plugin disable / gun holstered). */
     public void removeAllAimBoxes() {
-        for (var b : aimLock.values()) if (b != null && b.isValid()) b.remove();
-        aimLock.clear();
-        boxAttackSeen.clear();
+        for (var e : fakeBlock.entrySet()) {
+            Player p = plugin.getServer().getPlayer(e.getKey());
+            if (p != null) restoreFakeBlock(p, e.getValue());
+        }
+        fakeBlock.clear();
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
