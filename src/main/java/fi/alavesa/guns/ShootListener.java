@@ -655,7 +655,10 @@ public final class ShootListener implements Listener {
         org.bukkit.Material type;
         try { type = org.bukkit.Material.valueOf(plugin.getConfig().getString("auto-fake-block", "GLOW_LICHEN").toUpperCase()); }
         catch (IllegalArgumentException e) { type = org.bukkit.Material.GLOW_LICHEN; }
-        if (!type.isBlock()) type = org.bukkit.Material.GLOW_LICHEN;
+        // FORCE a non-colliding block regardless of config: a SOLID block (barrier/stone) in the head puts
+        // the client into crawl/swim pose (shoves the player down so the block ends up above the head). This
+        // overrides an old config value like BARRIER so the crawl bug can't come back through stale config.
+        if (!type.isBlock() || type.isSolid() || type == org.bukkit.Material.BARRIER) type = org.bukkit.Material.GLOW_LICHEN;
         org.bukkit.block.data.BlockData fake = type.createBlockData();
         // A multiface block (glow_lichen etc.) needs faces to render + be mineable; setting them all makes a
         // faint no-collision "cube" the client can mine from inside - so it never triggers crawl/suffocation
