@@ -697,6 +697,19 @@ public final class GunRegistry {
                 return;
             }
         }
+        // v0.87: default EQUIP animation for the Kriss Vector (3 first-person frames shipped in the pack).
+        if (yaml.getConfigurationSection("guns.vector") != null
+            && yaml.getConfigurationSection("guns.vector.anim.equip") == null
+            && !yaml.getBoolean("vector-equip-anim-offered", false)) {
+            yaml.set("guns.vector.anim.equip.frames", 3);
+            yaml.set("guns.vector.anim.equip.frame-ticks", 2);
+            yaml.set("vector-equip-anim-offered", true);
+            try { yaml.save(file); } catch (java.io.IOException e) {
+                plugin.getLogger().severe("Could not save guns.yml: " + e.getMessage()); }
+            plugin.getLogger().info("Added the Kriss Vector equip animation (3 frames) to guns.yml.");
+            load();
+            return;
+        }
         ConfigurationSection groot = yaml.getConfigurationSection("grenades");
         if (groot != null) {
             for (String id : groot.getKeys(false)) {
@@ -1023,15 +1036,45 @@ public final class GunRegistry {
      *  target) predates the component; the 26.2 server parses the string natively (type + this huge duration
      *  were both verified accepted on real Paper 26.2). Fails safe (returns the gun) on older servers. */
     private ItemStack noSwing(ItemStack item) {
+        item = component(item, "minecraft:swing_animation={type:\"whack\",duration:2147483647}", item);
+        // can_break on EVERY block (empty predicate = matches all): in ADVENTURE mode the client refuses to
+        // "mine" a block unless the held item may break it, and that mining stream is what drives left-hold
+        // full-auto. Nothing can actually be broken (onGunBlockBreak cancels it + hidden Mining Fatigue).
+        // The 1.21.5+ list form first, then the older {predicates:[...]} form; the tooltip line is hidden.
+        ItemStack cb = component(item, "minecraft:can_break=[{}]", null);
+        if (cb == null) cb = component(item, "minecraft:can_break={predicates:[{}]}", null);
+        if (cb != null) {
+            item = cb;
+            canBreakOk = true;
+            item = component(item, "minecraft:tooltip_display={hidden_components:[\"minecraft:can_break\"]}", item);
+        }
+        return item;
+    }
+
+    /** True once a gun was successfully given the adventure-mode can_break component (logged at enable). */
+    static boolean canBreakOk = false;
+
+    /** Apply one item component via the vanilla item-string parser (UnsafeValues), returning `fallback` if the
+     *  running server rejects it. Lets the 1.21.4 API compile target carry newer components. */
+    private static ItemStack component(ItemStack item, String component, ItemStack fallback) {
         try {
-            // swing_animation: stretch the arm swing toward invisibility (best-effort).
-            ItemStack modified = org.bukkit.Bukkit.getUnsafe().modifyItemStack(item,
-                item.getType().getKey() + "[minecraft:swing_animation={type:\"whack\",duration:2147483647}]");
-            return modified != null ? modified : item;
+            // Paper prepends the item id itself, so the argument is ONLY the [component] part (passing
+            // "minecraft:crossbow[...]" made every component silently fail with "Invalid ID at position 0").
+            ItemStack modified = org.bukkit.Bukkit.getUnsafe().modifyItemStack(item, "[" + component + "]");
+            if (modified == null && componentWarned.add(component))
+                org.bukkit.Bukkit.getLogger().warning("[Guns] component rejected (null): " + component);
+            return modified != null ? modified : fallback;
         } catch (Throwable t) {
-            return item;
+            if (componentWarned.add(component)) {
+                StringBuilder sb = new StringBuilder();
+                for (Throwable c = t; c != null; c = c.getCause()) sb.append(" <- ").append(c);
+                org.bukkit.Bukkit.getLogger().warning("[Guns] component rejected: " + component + sb);
+            }
+            return fallback;
         }
     }
+    private static final java.util.Set<String> componentWarned = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    static void resetComponentWarnings() { componentWarned.clear(); canBreakOk = false; }
 
     /** Grenade item: a snowball (throwable by vanilla; the throw is tagged by GrenadeListener). */
     public ItemStack buildGrenadeItem(Grenade grenade) {

@@ -61,20 +61,21 @@ public final class GunsPlugin extends JavaPlugin {
             GunSwingSuppressor.register(this, registry, shootListener);
         }
 
-        // Ammo boss bar + the swing-suppression effects, polled every 5 ticks. attack_speed is a
-        // DYNAMIC player attribute (added while a gun is held, removed otherwise) so it works on every
-        // gun instantly with no re-give; mining fatigue kills mining/swing visuals. Both toggle via config.
+        // Ammo boss bar + per-holder attributes/effects, polled every 5 ticks: optional attack_speed, the
+        // block-reach bonus for auto guns and the hidden Mining Fatigue - all DYNAMIC (added while a gun is
+        // held, removed otherwise) so they work on every gun instantly with no re-give.
         final org.bukkit.NamespacedKey atkKey = new org.bukkit.NamespacedKey(this, "gun_attack_speed");
+        final org.bukkit.NamespacedKey reachKey = new org.bukkit.NamespacedKey(this, "gun_block_reach");
         getServer().getScheduler().runTaskTimer(this, () -> {
-            double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // optional attack_speed modifier while a gun is held (auto no longer needs it)
+            double atkSpeed = getConfig().getDouble("gun.attack-speed", 0.0);       // optional attack_speed modifier while a gun is held
+            double reachBonus = getConfig().getDouble("auto-block-reach-bonus", 6.0); // so the far client-side barrier is in reach
+            boolean fatigue = getConfig().getBoolean("gun-mining-fatigue", true);
             for (var player : getServer().getOnlinePlayers()) {
                 var held = player.getInventory().getItemInMainHand();
                 Gun gun = registry.gunOf(held);
-                var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
                 boolean holdingGun = gun != null;
-                // attack_speed does NOT drive fire any more (firing is per left-click; full-auto = tap fast,
-                // capped by each gun's fire-rate). Left over only as an optional melee-swing tweak: default
-                // 0 = untouched. Apply a modifier only if the config sets a non-zero value.
+                boolean autoGun = holdingGun && "auto".equals(registry.fireModeOf(held, gun));
+                var attr = player.getAttribute(org.bukkit.attribute.Attribute.ATTACK_SPEED);
                 if (attr != null) {
                     var existing = attr.getModifier(atkKey);
                     if (holdingGun && atkSpeed != 0.0 && existing == null) {
@@ -85,23 +86,40 @@ public final class GunsPlugin extends JavaPlugin {
                         attr.removeModifier(atkKey);
                     }
                 }
+                // Block reach bonus while an AUTO gun is out: the client-side barrier that drives left-hold
+                // full-auto sits `auto-fake-distance` blocks ahead, beyond the vanilla 4.5 block reach.
+                var reach = player.getAttribute(org.bukkit.attribute.Attribute.BLOCK_INTERACTION_RANGE);
+                if (reach != null) {
+                    var existing = reach.getModifier(reachKey);
+                    if (autoGun && reachBonus != 0.0 && existing == null) {
+                        reach.addModifier(new org.bukkit.attribute.AttributeModifier(reachKey, reachBonus,
+                            org.bukkit.attribute.AttributeModifier.Operation.ADD_NUMBER,
+                            org.bukkit.inventory.EquipmentSlotGroup.ANY));
+                    } else if ((!autoGun || reachBonus == 0.0) && existing != null) {
+                        reach.removeModifier(reachKey);
+                    }
+                }
                 // Clean up the reverted 0.70 off-hand structure_void wherever it ended up (off-hand, hand,
                 // or anywhere in the inventory) for any player still carrying one.
                 shootListener.purgeBlockers(player);
+                var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
                 if (holdingGun) {
                     ammoBar.update(player, gun, registry.ammoOf(held), registry.fireModeOf(held, gun),
                         shootListener.reserveRounds(player, gun));
                     shootListener.normalizeHeldModel(player);   // keep the base model unless states are enabled
-                    // Mining-Fatigue-255 is NOT applied any more: amp 255 breaks the client's block-mining
-                    // prediction, and the aim-lock INTERACTION relies on that exact "mining" stream to give
-                    // hold-to-fire full-auto. Actively clear any 255 fatigue left from an older build.
-                    var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
-                    if (mf != null && mf.getAmplifier() == 255)
+                    // Hidden Mining Fatigue III while a gun is held: dig speed x0.0008, so a real block under the
+                    // crosshair never cracks or breaks while you spray - yet the client keeps "mining" it, which
+                    // is exactly the per-tick swing stream that drives left-hold full-auto. Amp 3 (not 255):
+                    // 255 pushed attack_speed negative = a permanent cooldown bar under the crosshair.
+                    if (fatigue && (mf == null || mf.getAmplifier() < 3 || mf.getDuration() < 60)) {
+                        player.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                            org.bukkit.potion.PotionEffectType.MINING_FATIGUE, 200, 3, true, false, false));
+                    } else if (!fatigue && mf != null && (mf.getAmplifier() == 3 || mf.getAmplifier() == 255)) {
                         player.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
+                    }
                 } else {
                     ammoBar.hide(player);
-                    var mf = player.getPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
-                    if (mf != null && mf.getAmplifier() == 255)
+                    if (mf != null && (mf.getAmplifier() == 3 || mf.getAmplifier() == 255))
                         player.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
                 }
             }
@@ -109,6 +127,14 @@ public final class GunsPlugin extends JavaPlugin {
 
         getLogger().info("Guns enabled - guns: " + registry.ids() + ", grenades: " + registry.grenadeIds()
             + ", mags: " + registry.magIds());
+        // Probe the item components (swing_animation / can_break) once the server is fully up - the vanilla
+        // item-string parser is not usable during plugin enable, so probe 5 s later and log the result.
+        getServer().getScheduler().runTaskLater(this, () -> {
+            GunRegistry.resetComponentWarnings();
+            for (String gid : registry.ids()) { registry.buildItem(registry.get(gid)); break; }
+            getLogger().info("Left-hold full-auto: client-side barrier at " + getConfig().getDouble("auto-fake-distance", 8.0)
+                + " blocks; adventure can_break component " + (GunRegistry.canBreakOk ? "OK" : "NOT accepted by this server"));
+        }, 100L);
     }
 
     @Override

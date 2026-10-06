@@ -68,12 +68,12 @@ final class GunSwingSuppressor {
                               : type == PacketType.Play.Client.BLOCK_DIG ? 1 : 2;
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     shootListener.debugPacket(player, idx);
-                    // Fire ONLY on the block-dig stream (left-click mining). NOT on USE_ENTITY: right-click
-                    // sends USE_ENTITY (interact) too, and firing on that made the gun shoot on right-click.
-                    if (idx == 1) shootListener.swingFire(player);   // swings are handled by onSwing
+                    // Diagnostic only. Firing is driven by the per-tick ARM SWINGS (onSwing); BLOCK_DIG is NOT a
+                    // trigger any more because the same packet carries DROP (Q) and SWAP (F = reload), which
+                    // used to fire a stray shot, and USE_ENTITY is right-click too.
                 });
             }
         });
-        plugin.getLogger().info("ProtocolLib detected - swing hidden from others + swing/dig/attack fire+debug.");
+        plugin.getLogger().info("ProtocolLib detected - swing hidden from others + swing/dig/attack packet debug.");
     }
 }

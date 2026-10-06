@@ -5,29 +5,27 @@
 # client-predicted so a frame or two may still slip through (a full first-person removal needs a client mod).
 #
 # CONTROLS (fixed):
-#   LEFT-click  = FIRE.
-#                 - SEMI gun: one shot per click.
-#                 - AUTO gun: TOGGLE full-auto - tap once to START spraying at the fire-rate, tap again to
-#                   STOP. It also stops on its own when the magazine empties, you switch/holster the gun, or
-#                   you reload. (Hold-to-fire is impossible on the left button: Minecraft never reports the
-#                   left button as HELD when you click air, so a tap-toggle is how full-auto works here.)
-#                 Switch a gun between semi and auto with /guns firemode.
-#   RIGHT-click = RELOAD. Never fires. A timer reload plays the reload sound/animation and loads a fresh
-#                 magazine - no arrow/"round" item is ever put in your inventory.
+#   LEFT-click  = FIRE.  SEMI gun: one shot per click.  AUTO gun: HOLD to spray at the fire-rate, release to
+#                 stop (tap = one shot). See auto-fake-distance below for how the hold is detected.
+#   F           = RELOAD (timer reload; no arrow/"round" item is ever put in your inventory).
+#   RIGHT-click = nothing (spyglass guns keep their scope).
 fire-button: left
 
-# LEFT-hold full-auto (CounterMine Method 2): while holding a gun, a mineable block is shown
-# CLIENT-SIDE-ONLY inside your head, so holding LEFT makes the client continuously "mine" it - streaming
-# the packets the server turns into automatic fire. The server never has the block (nothing breaks).
-# Use a NON-COLLIDING block so it never forces the crawl/swim pose: GLOW_LICHEN (default) is mineable and
-# has no collision, so it sits in your head without pushing you into crawl. A solid block like BARRIER/STONE
-# DOES cause crawl (avoid). Any non-solid mineable block works.
-auto-fake-block: GLOW_LICHEN
+# LEFT-HOLD FULL-AUTO. Minecraft's client only repeats the arm swing while it is MINING a block under the
+# crosshair (air/entity clicks send ONE swing per press). So while an AUTO gun is held the plugin keeps an
+# invisible, unbreakable BARRIER block CLIENT-SIDE-ONLY on your crosshair, this many blocks ahead (you alone
+# see its thin wireframe outline; the server never has the block, bullets pass, nobody else sees it).
+# Holding LEFT "mines" it forever = continuous fire; release = stops. A real block closer than this is mined
+# instead (Mining Fatigue keeps it from cracking); an enemy under the crosshair gets the box just in front of
+# them. Never placed within ~1.2 blocks of you, so point-blank is tap-fire. 0 = off (tap-fire only).
+auto-fake-distance: 8.0
+# Extra block reach while an AUTO gun is out so that barrier is reachable (vanilla reach is 4.5). 0 = off.
+auto-block-reach-bonus: 6.0
 
 
-# Removes the MINING swing (the arm-swing you get when you left-click while looking at a block/floor/wall):
-# a hidden high-amplifier Mining Fatigue stops the client from starting to mine, so no mining swing. Pairs
-# with the swing_animation component (which removes the ATTACK swing on air) for full coverage. Default ON.
+# Hidden Mining Fatigue III while a gun is held: a real block under the crosshair never cracks or breaks while
+# you spray, yet the client keeps "mining" it - that per-tick swing stream is what drives left-hold full-auto.
+# Also makes the mining arm-swing crawl. Default ON (turn off only if you see blocks cracking is fine).
 gun-mining-fatigue: true
 
 # Hide the arm swing from OTHER players at the packet level too. Only used if ProtocolLib is installed.

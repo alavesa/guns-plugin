@@ -99,6 +99,8 @@ guns:
     aim-spread: 0.4
     recoil: 0.6
     mag: mag_smg
+    anim:
+      equip: { frames: 3, frame-ticks: 2 }   # first-person draw animation (gun_vector_equip1..3 in the pack)
 
 grenades:
   frag:

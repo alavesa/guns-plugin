@@ -546,7 +546,12 @@ public final class ShootListener implements Listener {
         repairPose(item);
         Player player = event.getPlayer();
         if (left) {
-            event.setCancelled(true);            // no melee/block-break with a gun
+            // No melee / block-break with a gun - but NEVER cancel a left-click on an AIR block: that is the
+            // client "mining" the client-side barrier that drives left-hold full-auto, and Paper answers a
+            // cancelled LEFT_CLICK_BLOCK by re-sending the real (air) block, which deletes the fake and kills
+            // the stream. Real blocks never break anyway (onGunBlockBreak + hidden Mining Fatigue).
+            org.bukkit.block.Block clicked = event.getClickedBlock();
+            if (clicked == null || !clicked.getType().isAir()) event.setCancelled(true);
             swingFire(player);                   // fire (also fired from onSwing; fire-rate gated so no double)
             return;
         }
@@ -643,47 +648,90 @@ public final class ShootListener implements Listener {
         }
     }
 
-    /** CounterMine "Method 2": a FULL block sent CLIENT-SIDE-ONLY inside the gun-holder's head. Holding LEFT
-     *  makes the client continuously "mine" it, streaming BLOCK_DIG + arm-swing packets, which the server
-     *  turns into continuous full-auto (onSwing + the ProtocolLib dig listener). The server never actually
-     *  has the block, so no real block is touched and there is no crawl/suffocation server-side. Default
-     *  BARRIER (a full, invisible block); set `auto-fake-block` in config.yml to try another block type. */
+    /** LEFT-HOLD FULL-AUTO = the "mining stream". Minecraft's client re-sends the arm swing EVERY TICK only
+     *  while it is MINING a block under the crosshair; clicking air or an entity sends ONE swing per press. So
+     *  while an AUTO gun is held we keep an invisible, unbreakable BARRIER block CLIENT-SIDE-ONLY
+     *  (sendBlockChange - that player alone sees it) on the crosshair ray, AHEAD of the player. Holding LEFT
+     *  then "mines" it for ever (a barrier never breaks) and the per-tick swings (PlayerArmSwingEvent ->
+     *  swingFire) become continuous fire; releasing ends the stream the same tick. The server never has the
+     *  block, so bullets, movement and other players are untouched. Placement, every tick:
+     *   - `auto-fake-distance` blocks out along the crosshair (the holder gets a block-reach bonus so it is in
+     *     reach);
+     *   - a REAL block nearer than that is left alone - the client mines it instead and the hidden Mining
+     *     Fatigue keeps it from cracking or breaking - unless it is an instant-break block (torch, grass...),
+     *     then the fake goes just in front of it;
+     *   - an ENTITY under the crosshair would swallow the hold (the client picks entities over blocks), so the
+     *     fake goes just in front of the nearest entity on the ray (a wireframe "lock" box on the target);
+     *   - never within ~1.2 blocks of the player's own hitbox (a solid client-side block there would collide /
+     *     force the crawl pose), so point-blank stays tap-fire;
+     *   - the real block is re-sent the moment the spot changes, the gun is holstered or the player leaves.
+     *  WHY the old in-head version never worked: a cancelled LEFT_CLICK_BLOCK makes Paper re-send the REAL
+     *  (air) block to the client, which deleted the fake and killed the stream every tick - see onShoot. */
     static final String AIMLOCK_TAG = "guns_aimlock";        // kept for the bullet-raytrace filters (harmless)
     private final Map<UUID, org.bukkit.Location> fakeBlock = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> fakeAge = new ConcurrentHashMap<>();
 
     public void aimBoxTick() {
-        org.bukkit.Material type;
-        try { type = org.bukkit.Material.valueOf(plugin.getConfig().getString("auto-fake-block", "GLOW_LICHEN").toUpperCase()); }
-        catch (IllegalArgumentException e) { type = org.bukkit.Material.GLOW_LICHEN; }
-        // FORCE a non-colliding block regardless of config: a SOLID block (barrier/stone) in the head puts
-        // the client into crawl/swim pose (shoves the player down so the block ends up above the head). This
-        // overrides an old config value like BARRIER so the crawl bug can't come back through stale config.
-        if (!type.isBlock() || type.isSolid() || type == org.bukkit.Material.BARRIER) type = org.bukkit.Material.GLOW_LICHEN;
-        org.bukkit.block.data.BlockData fake = type.createBlockData();
-        // A multiface block (glow_lichen etc.) needs faces to render + be mineable; setting them all makes a
-        // faint no-collision "cube" the client can mine from inside - so it never triggers crawl/suffocation
-        // like a solid barrier does, and it stays right in the head instead of being pushed above it.
-        if (fake instanceof org.bukkit.block.data.MultipleFacing mf) {
-            for (org.bukkit.block.BlockFace f : mf.getAllowedFaces()) mf.setFace(f, true);
-        }
+        double maxDist = plugin.getConfig().getDouble("auto-fake-distance", 8.0);
+        org.bukkit.block.data.BlockData fake = org.bukkit.Material.BARRIER.createBlockData();
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             UUID id = p.getUniqueId();
-            Gun gun = registry.gunOf(p.getInventory().getItemInMainHand());
+            ItemStack held = p.getInventory().getItemInMainHand();
+            Gun gun = registry.gunOf(held);
             org.bukkit.Location prev = fakeBlock.get(id);
-            if (gun == null || p.isDead() || !p.isValid()) {
-                if (prev != null) { restoreFakeBlock(p, prev); fakeBlock.remove(id); }
+            boolean auto = gun != null && "auto".equals(registry.fireModeOf(held, gun));
+            org.bukkit.Location target = null;
+            if (auto && maxDist > 0 && !p.isDead() && p.isValid() && !reloading.contains(id)) target = fakeSpot(p, maxDist);
+            if (target == null) {
+                if (prev != null) { restoreFakeBlock(p, prev); fakeBlock.remove(id); fakeAge.remove(id); }
                 continue;
             }
-            // Strip Mining Fatigue (a datapack may apply it): a high amplifier breaks the client's block-mining
-            // prediction - the exact packet stream this relies on.
-            if (p.hasPotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE)) {
-                p.removePotionEffect(org.bukkit.potion.PotionEffectType.MINING_FATIGUE);
-            }
-            org.bukkit.Location head = p.getEyeLocation().getBlock().getLocation();
-            if (prev != null && !prev.equals(head)) restoreFakeBlock(p, prev);   // clear the old spot
-            p.sendBlockChange(head, fake);          // fake full block in the head (client-side only)
-            fakeBlock.put(id, head);
+            boolean same = prev != null && prev.equals(target);
+            if (prev != null && !same) restoreFakeBlock(p, prev);          // clear the old spot
+            int age = same ? fakeAge.getOrDefault(id, 0) + 1 : 0;
+            if (age == 0 || age % 20 == 0) p.sendBlockChange(target, fake); // send once, refresh every second
+            fakeAge.put(id, age);
+            fakeBlock.put(id, target);
         }
+    }
+
+    /** Where this player's client-side barrier goes this tick, or null for "no fake block". */
+    private org.bukkit.Location fakeSpot(Player p, double maxDist) {
+        org.bukkit.Location eye = p.getEyeLocation();
+        Vector eyeV = eye.toVector();
+        Vector dir = eye.getDirection();
+        org.bukkit.World w = p.getWorld();
+        double limit = maxDist;
+        boolean needFake = true;
+        var blockHit = w.rayTraceBlocks(eye, dir, maxDist, org.bukkit.FluidCollisionMode.NEVER, false);
+        if (blockHit != null && blockHit.getHitBlock() != null) {
+            double bd = blockHit.getHitPosition().distance(eyeV);
+            if (bd < limit) {
+                if (blockHit.getHitBlock().getType().getHardness() == 0f) limit = bd - 0.3; // insta-break: fake in front of it
+                else { limit = bd; needFake = false; }                                     // real block: the client mines THAT
+            }
+        }
+        var entHit = w.rayTraceEntities(eye, dir, limit, 0.3, e ->
+            e != p && pickable(e) && !e.getScoreboardTags().contains(AIMLOCK_TAG)
+            && !(e instanceof Player pl && pl.getGameMode() == org.bukkit.GameMode.SPECTATOR)
+            && !e.getBoundingBox().contains(eyeV));                                         // not the car you sit in
+        if (entHit != null && entHit.getHitEntity() != null) {
+            double ed = entHit.getHitPosition().distance(eyeV);
+            if (ed < limit) { limit = ed - 0.6; needFake = true; }
+        }
+        if (!needFake || limit < 1.2) return null;
+        org.bukkit.block.Block b = eye.clone().add(dir.clone().multiply(limit)).getBlock();
+        if (!b.getType().isAir()) return null;                            // only ever fake INTO air
+        // keep clear of the player's own hitbox (+ a lag margin): a solid client-side block there would collide
+        if (p.getBoundingBox().expand(1.0, 0.6, 1.0).overlaps(org.bukkit.util.BoundingBox.of(b))) return null;
+        return b.getLocation();
+    }
+
+    /** Entities the CLIENT can put under the crosshair (and would therefore stop mining for). */
+    private static boolean pickable(org.bukkit.entity.Entity e) {
+        return e instanceof org.bukkit.entity.LivingEntity || e instanceof org.bukkit.entity.Vehicle
+            || e instanceof org.bukkit.entity.Hanging || e instanceof org.bukkit.entity.Interaction
+            || e instanceof org.bukkit.entity.EnderCrystal;
     }
 
     /** Re-send the REAL block at a spot so the client's fake block is cleared. */
@@ -698,6 +746,7 @@ public final class ShootListener implements Listener {
             if (p != null) restoreFakeBlock(p, e.getValue());
         }
         fakeBlock.clear();
+        fakeAge.clear();
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
