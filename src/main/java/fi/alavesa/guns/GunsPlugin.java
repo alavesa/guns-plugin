@@ -45,6 +45,12 @@ public final class GunsPlugin extends JavaPlugin {
         shootListener = new ShootListener(this, registry, ammoBar);
         getServer().getPluginManager().registerEvents(shootListener, this);
         getServer().getScheduler().runTaskTimer(this, shootListener::bulletTick, 1L, 1L);
+        // 0.88: the barrier moved from 8 to 7 blocks; upgrade a 0.87 config that still has the old default.
+        if (!getConfig().getBoolean("fake-distance-7", false)) {
+            if (getConfig().getDouble("auto-fake-distance", 7.0) == 8.0) getConfig().set("auto-fake-distance", 7.0);
+            getConfig().set("fake-distance-7", true);
+            saveConfig();
+        }
         getServer().getScheduler().runTaskTimer(this, shootListener::aimBoxTick, 1L, 1L);   // CounterMine hold-detect box
         getServer().getScheduler().runTaskTimer(this, shootListener::tickReticle, 1L, 1L);
         getServer().getScheduler().runTaskTimer(this, shootListener::insulationTick, 40L, 20L);  // thermal insulation

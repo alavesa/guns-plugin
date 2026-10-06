@@ -18,7 +18,11 @@ fire-button: left
 # Holding LEFT "mines" it forever = continuous fire; release = stops. A real block closer than this is mined
 # instead (Mining Fatigue keeps it from cracking); an enemy under the crosshair gets the box just in front of
 # them. Never placed within ~1.2 blocks of you, so point-blank is tap-fire. 0 = off (tap-fire only).
-auto-fake-distance: 8.0
+auto-fake-distance: 7.0
+# Fast camera turns: a 3x3x3 cluster is shown at the crosshair AND where it is heading (lead = how many ticks
+# ahead to extrapolate), and cells linger this many ticks after the crosshair leaves them.
+auto-fake-lead: 3.0
+auto-fake-linger-ticks: 3
 # Extra block reach while an AUTO gun is out so that barrier is reachable (vanilla reach is 4.5). 0 = off.
 auto-block-reach-bonus: 6.0
 
@@ -48,6 +52,10 @@ fp-anim:
   fire:   { frames: 0,  frame-ticks: 1 }
   reload: { frames: 0,  frame-ticks: 2 }
   equip:  { frames: 0,  frame-ticks: 2 }
+
+# Blocks bullets fly straight THROUGH (not stopped, no bullet hole): invisible map barriers by default.
+bullet-pass-through:
+  - BARRIER
 
 # Performance tuning. Tracers are the heaviest cosmetic - raise the step / lower the cap
 # if the server or clients struggle.

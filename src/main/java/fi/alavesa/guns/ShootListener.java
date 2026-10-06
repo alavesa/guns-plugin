@@ -668,38 +668,82 @@ public final class ShootListener implements Listener {
      *  WHY the old in-head version never worked: a cancelled LEFT_CLICK_BLOCK makes Paper re-send the REAL
      *  (air) block to the client, which deleted the fake and killed the stream every tick - see onShoot. */
     static final String AIMLOCK_TAG = "guns_aimlock";        // kept for the bullet-raytrace filters (harmless)
-    private final Map<UUID, org.bukkit.Location> fakeBlock = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer> fakeAge = new ConcurrentHashMap<>();
+    /** Per player: every client-side barrier cell currently shown -> the tick it was last wanted. */
+    private final Map<UUID, Map<org.bukkit.Location, Integer>> fakeCells = new ConcurrentHashMap<>();
+    private final Map<UUID, Vector> lastDir = new ConcurrentHashMap<>();
+    private int fakeTick = 0;
 
+    /** Fast camera turns used to drop the hold: the server only knows the crosshair as of the last packet, so
+     *  a single cell lagged BEHIND the real crosshair and the client saw air. Now each tick shows a 3x3x3
+     *  cluster at the current spot AND one at the spot the crosshair is heading to (lead = extrapolated from
+     *  the last two look directions), and cells linger a few ticks after they stop being wanted. */
     public void aimBoxTick() {
-        double maxDist = plugin.getConfig().getDouble("auto-fake-distance", 8.0);
+        fakeTick++;
+        double maxDist = plugin.getConfig().getDouble("auto-fake-distance", 7.0);
+        double lead = plugin.getConfig().getDouble("auto-fake-lead", 3.0);
+        int linger = plugin.getConfig().getInt("auto-fake-linger-ticks", 3);
         org.bukkit.block.data.BlockData fake = org.bukkit.Material.BARRIER.createBlockData();
         for (Player p : plugin.getServer().getOnlinePlayers()) {
             UUID id = p.getUniqueId();
             ItemStack held = p.getInventory().getItemInMainHand();
             Gun gun = registry.gunOf(held);
-            org.bukkit.Location prev = fakeBlock.get(id);
             boolean auto = gun != null && "auto".equals(registry.fireModeOf(held, gun));
-            org.bukkit.Location target = null;
-            if (auto && maxDist > 0 && !p.isDead() && p.isValid() && !reloading.contains(id)) target = fakeSpot(p, maxDist);
-            if (target == null) {
-                if (prev != null) { restoreFakeBlock(p, prev); fakeBlock.remove(id); fakeAge.remove(id); }
-                continue;
+            Map<org.bukkit.Location, Integer> cells = fakeCells.get(id);
+            java.util.Set<org.bukkit.Location> want = new java.util.HashSet<>();
+            if (auto && maxDist > 0 && !p.isDead() && p.isValid() && !reloading.contains(id)) {
+                Vector dir = p.getEyeLocation().getDirection();
+                Vector prev = lastDir.put(id, dir.clone());
+                addCluster(want, p, dir, maxDist);
+                if (prev != null && lead > 0) {
+                    Vector pred = dir.clone().add(dir.clone().subtract(prev).multiply(lead));
+                    if (pred.lengthSquared() > 1e-6 && pred.normalize().dot(dir) < 0.999) addCluster(want, p, pred, maxDist);
+                }
+            } else {
+                lastDir.remove(id);
             }
-            boolean same = prev != null && prev.equals(target);
-            if (prev != null && !same) restoreFakeBlock(p, prev);          // clear the old spot
-            int age = same ? fakeAge.getOrDefault(id, 0) + 1 : 0;
-            if (age == 0 || age % 20 == 0) p.sendBlockChange(target, fake); // send once, refresh every second
-            fakeAge.put(id, age);
-            fakeBlock.put(id, target);
+            if (cells == null) {
+                if (want.isEmpty()) continue;
+                cells = new java.util.HashMap<>();
+                fakeCells.put(id, cells);
+            }
+            Map<org.bukkit.Location, org.bukkit.block.data.BlockData> send = new java.util.HashMap<>();
+            for (org.bukkit.Location c : want) {
+                if (!cells.containsKey(c) || fakeTick % 40 == 0) send.put(c, fake);   // new cell, or a periodic refresh
+                cells.put(c, fakeTick);
+            }
+            Map<org.bukkit.Location, org.bukkit.block.data.BlockData> restore = new java.util.HashMap<>();
+            for (var it = cells.entrySet().iterator(); it.hasNext(); ) {
+                var en = it.next();
+                if (fakeTick - en.getValue() > linger) {
+                    org.bukkit.Location c = en.getKey();
+                    if (c.getWorld() != null && c.isChunkLoaded()) restore.put(c, c.getBlock().getBlockData());
+                    it.remove();
+                }
+            }
+            if (!send.isEmpty()) p.sendMultiBlockChange(send);
+            if (!restore.isEmpty()) p.sendMultiBlockChange(restore);
+            if (cells.isEmpty()) fakeCells.remove(id);
+        }
+    }
+
+    /** Add the 3x3x3 cluster of air cells around the barrier spot for this look direction. */
+    private void addCluster(java.util.Set<org.bukkit.Location> out, Player p, Vector dir, double maxDist) {
+        org.bukkit.Location center = fakeSpot(p, dir, maxDist);
+        if (center == null) return;
+        org.bukkit.util.BoundingBox guard = p.getBoundingBox().expand(1.0, 0.6, 1.0);
+        for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++) {
+            org.bukkit.block.Block b = center.clone().add(dx, dy, dz).getBlock();
+            if (!b.getType().isAir()) continue;                                        // only ever fake INTO air
+            if (guard.overlaps(org.bukkit.util.BoundingBox.of(b))) continue;            // never touching the player
+            out.add(b.getLocation());
         }
     }
 
     /** Where this player's client-side barrier goes this tick, or null for "no fake block". */
-    private org.bukkit.Location fakeSpot(Player p, double maxDist) {
+    private org.bukkit.Location fakeSpot(Player p, Vector dir, double maxDist) {
         org.bukkit.Location eye = p.getEyeLocation();
         Vector eyeV = eye.toVector();
-        Vector dir = eye.getDirection();
+        dir = dir.clone().normalize();
         org.bukkit.World w = p.getWorld();
         double limit = maxDist;
         boolean needFake = true;
@@ -720,11 +764,7 @@ public final class ShootListener implements Listener {
             if (ed < limit) { limit = ed - 0.6; needFake = true; }
         }
         if (!needFake || limit < 1.2) return null;
-        org.bukkit.block.Block b = eye.clone().add(dir.clone().multiply(limit)).getBlock();
-        if (!b.getType().isAir()) return null;                            // only ever fake INTO air
-        // keep clear of the player's own hitbox (+ a lag margin): a solid client-side block there would collide
-        if (p.getBoundingBox().expand(1.0, 0.6, 1.0).overlaps(org.bukkit.util.BoundingBox.of(b))) return null;
-        return b.getLocation();
+        return eye.clone().add(dir.clone().multiply(limit)).getBlock().getLocation();   // cluster filters air/guard
     }
 
     /** Entities the CLIENT can put under the crosshair (and would therefore stop mining for). */
@@ -734,19 +774,18 @@ public final class ShootListener implements Listener {
             || e instanceof org.bukkit.entity.EnderCrystal;
     }
 
-    /** Re-send the REAL block at a spot so the client's fake block is cleared. */
-    private void restoreFakeBlock(Player p, org.bukkit.Location loc) {
-        if (loc.getWorld() != null && loc.isChunkLoaded()) p.sendBlockChange(loc, loc.getBlock().getBlockData());
-    }
-
     /** Clear every player's fake block (plugin disable / gun holstered). */
     public void removeAllAimBoxes() {
-        for (var e : fakeBlock.entrySet()) {
+        for (var e : fakeCells.entrySet()) {
             Player p = plugin.getServer().getPlayer(e.getKey());
-            if (p != null) restoreFakeBlock(p, e.getValue());
+            if (p == null) continue;
+            Map<org.bukkit.Location, org.bukkit.block.data.BlockData> restore = new java.util.HashMap<>();
+            for (org.bukkit.Location c : e.getValue().keySet())
+                if (c.getWorld() != null && c.isChunkLoaded()) restore.put(c, c.getBlock().getBlockData());
+            if (!restore.isEmpty()) p.sendMultiBlockChange(restore);
         }
-        fakeBlock.clear();
-        fakeAge.clear();
+        fakeCells.clear();
+        lastDir.clear();
     }
 
     /** RELOAD (right-click). A timer reload: no lent "round" arrow, no crossbow pull - just a delay, the
@@ -1089,10 +1128,11 @@ public final class ShootListener implements Listener {
 
         double pbRange = Math.max(4.0, gun.speed() + 1.0);
         Location eye = player.getEyeLocation();
-        RayTraceResult pb = player.getWorld().rayTrace(eye, dir, pbRange,
-            FluidCollisionMode.NEVER, true, 0.3,
-            e -> e instanceof LivingEntity && e != player && !bullets.contains(e.getUniqueId())
-                && !e.getScoreboardTags().contains(AIMLOCK_TAG));   // bullets pass through the aim-lock slime
+        RayTraceResult pb = nearest(eye,
+            player.getWorld().rayTraceEntities(eye, dir, pbRange, 0.3,
+                e -> e instanceof LivingEntity && e != player && !bullets.contains(e.getUniqueId())
+                    && !e.getScoreboardTags().contains(AIMLOCK_TAG)),
+            traceBlocks(player.getWorld(), eye, dir, pbRange));   // skips pass-through blocks (barrier)
         if (pb != null) {
             if (pb.getHitEntity() instanceof LivingEntity target) {
                 applyHit(player, gun, target, pb.getHitPosition().toLocation(player.getWorld()), dmgMult);
@@ -1113,6 +1153,8 @@ public final class ShootListener implements Listener {
         // Spawn the bullet ON the aim line (just past the point-blank scan), moving along dir, so it stays
         // exactly on the crosshair - the muzzle offset is used only for the flash, never the trajectory.
         Location bulletStart = eye.clone().add(dir.clone().multiply(pbRange));
+        for (int i = 0; i < 40 && passThrough(bulletStart.getBlock().getType()); i++)
+            bulletStart.add(dir.clone().multiply(0.1));                  // never spawn inside a pass-through block
         Arrow bullet = player.getWorld().spawnArrow(bulletStart, velocity, 1f, 0f);
         bullet.setShooter(player);
         bullet.setGravity(false);              // curve is applied manually by the tracker
@@ -1353,7 +1395,7 @@ public final class ShootListener implements Listener {
                 double reach = vel.length() + 0.5;
                 if (reach > 0.01) {
                     Vector dir = vel.clone().normalize();
-                    Location from = bullet.getLocation();
+                    Location from = hopThrough(bullet, bullet.getLocation(), vel, reach);   // barrier etc.: jump through
                     String shooterId = pdc.get(bulletShooterKey, PersistentDataType.STRING);
                     Player shooter = shooterId == null ? null
                         : plugin.getServer().getPlayer(java.util.UUID.fromString(shooterId));
@@ -1400,6 +1442,71 @@ public final class ShootListener implements Listener {
         }
     }
 
+
+    // ---------------------------------------------------------------- pass-through blocks
+    private java.util.Set<Material> passThroughCache;
+    private long passThroughAt;
+
+    /** Block types bullets fly straight through (config `bullet-pass-through`, default BARRIER). */
+    private boolean passThrough(Material m) {
+        long now = System.currentTimeMillis();
+        if (passThroughCache == null || now - passThroughAt > 5000) {
+            java.util.Set<Material> set = java.util.EnumSet.noneOf(Material.class);
+            for (String n : plugin.getConfig().getStringList("bullet-pass-through")) {
+                try { set.add(Material.valueOf(n.trim().toUpperCase())); } catch (IllegalArgumentException ignored) { }
+            }
+            if (!plugin.getConfig().contains("bullet-pass-through")) set.add(Material.BARRIER);
+            passThroughCache = set;
+            passThroughAt = now;
+        }
+        return passThroughCache.contains(m);
+    }
+
+    /** Block ray-trace that skips pass-through blocks (steps through them and carries on). */
+    private RayTraceResult traceBlocks(org.bukkit.World w, Location from, Vector dir, double dist) {
+        Location cur = from.clone();
+        double left = dist;
+        for (int hop = 0; hop < 6 && left > 0.01; hop++) {
+            RayTraceResult r = w.rayTraceBlocks(cur, dir, left, FluidCollisionMode.NEVER, true);
+            if (r == null || r.getHitBlock() == null || !passThrough(r.getHitBlock().getType())) return r;
+            Location exit = r.getHitPosition().toLocation(w).add(dir.clone().multiply(0.1));
+            int steps = 0;
+            while (passThrough(exit.getBlock().getType()) && steps++ < 40) exit.add(dir.clone().multiply(0.1));
+            exit.add(dir.clone().multiply(0.05));
+            left -= exit.distance(cur);
+            cur = exit;
+        }
+        return null;
+    }
+
+    /** The nearer of an entity hit and a block hit (either may be null). */
+    private static RayTraceResult nearest(Location from, RayTraceResult ent, RayTraceResult blk) {
+        if (ent == null || ent.getHitEntity() == null) return blk;
+        if (blk == null || blk.getHitBlock() == null) return ent;
+        return ent.getHitPosition().distanceSquared(from.toVector()) <= blk.getHitPosition().distanceSquared(from.toVector()) ? ent : blk;
+    }
+
+    /** If the next bit of a bullet's path enters a pass-through block, jump it to the far side (keeping its
+     *  velocity) so the arrow physics never lands inside the block - inside = stuck "in ground". Returns the
+     *  bullet's (possibly new) location. */
+    private Location hopThrough(Arrow bullet, Location from, Vector vel, double reach) {
+        Vector dir = vel.clone().normalize();
+        for (int hop = 0; hop < 3; hop++) {
+            RayTraceResult raw = bullet.getWorld().rayTraceBlocks(from, dir, reach, FluidCollisionMode.NEVER, true);
+            if (raw == null || raw.getHitBlock() == null || !passThrough(raw.getHitBlock().getType())) break;
+            Location exit = raw.getHitPosition().toLocation(bullet.getWorld()).add(dir.clone().multiply(0.1));
+            int steps = 0;
+            while (passThrough(exit.getBlock().getType()) && steps++ < 40) exit.add(dir.clone().multiply(0.1));
+            exit.add(dir.clone().multiply(0.05));
+            exit.setDirection(dir);
+            bullet.teleport(exit);
+            bullet.setVelocity(vel);
+            reach = Math.max(0.01, reach - exit.distance(from));
+            from = exit;
+        }
+        return from;
+    }
+
     /** A bullet lands: apply the gun's hit to a living target, or bounce/expire. */
     @EventHandler
     public void onBulletHit(ProjectileHitEvent event) {
@@ -1414,6 +1521,12 @@ public final class ShootListener implements Listener {
 
         if (event.getHitEntity() != null && event.getHitEntity().getScoreboardTags().contains(AIMLOCK_TAG)) {
             return;   // never let a bullet interact with the aim-lock slime
+        }
+        if (event.getHitBlock() != null && passThrough(event.getHitBlock().getType())) {
+            event.setCancelled(true);   // barrier etc.: fly straight through
+            Vector v = bullet.getVelocity();
+            if (v.lengthSquared() > 1e-6) hopThrough(bullet, bullet.getLocation(), v, v.length() + 1.5);
+            return;
         }
         if (event.getHitEntity() instanceof LivingEntity target
             && target != shooter && gun != null) {
