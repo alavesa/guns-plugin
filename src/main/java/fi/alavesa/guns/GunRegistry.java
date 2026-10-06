@@ -1036,7 +1036,11 @@ public final class GunRegistry {
      *  target) predates the component; the 26.2 server parses the string natively (type + this huge duration
      *  were both verified accepted on real Paper 26.2). Fails safe (returns the gun) on older servers. */
     private ItemStack noSwing(ItemStack item) {
-        item = component(item, "minecraft:swing_animation={type:\"whack\",duration:2147483647}", item);
+        // 26.2: minecraft:swing_animation; 26.3+ split it into attack_animation / interact_animation.
+        String swing = "={type:\"whack\",duration:2147483647}";
+        ItemStack sw = component(item, "minecraft:swing_animation" + swing, null);
+        if (sw == null) sw = component(item, "minecraft:attack_animation" + swing, null);
+        if (sw != null) item = sw;
         // can_break on EVERY block (empty predicate = matches all): in ADVENTURE mode the client refuses to
         // "mine" a block unless the held item may break it, and that mining stream is what drives left-hold
         // full-auto. Nothing can actually be broken (onGunBlockBreak cancels it + hidden Mining Fatigue).
